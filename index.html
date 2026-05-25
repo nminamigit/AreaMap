@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Google Map iPad Custom Tool</title>
+  <title>Google Map iPad Custom Tool (Multi-Mode)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
@@ -12,6 +12,26 @@
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
+    }
+
+    /* 右上のモード選択UIのスタイル */
+    .map-mode-selector {
+      background: white;
+      padding: 10px 14px;
+      margin: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .map-mode-selector label {
+      margin-right: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+    }
+    .map-mode-selector input[type="radio"] {
+      margin-right: 4px;
     }
 
     /* 凡例（地図右下）のスタイル */
@@ -50,263 +70,290 @@
     .dropdown-item .color-badge { width: 12px; height: 12px; margin-right: 8px; border: 1px solid #333; border-radius: 2px; }
     .dropdown-item.delete-item { color: #dc2626; font-weight: bold; border-top: 1px solid #eee; margin-top: 4px; }
   </style>
-
+  
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&callback=initMap" async defer></script>
   
   <script>
-// --- 状態定義 ---
-const STATUS_LIST = [
-  { color: 'white',        label: '未訪問',       code: '#ffffff' },
-  { color: 'blue',         label: '訪問済み',     code: '#3b82f6' },
-  { color: 'yellow',       label: '留守',         code: '#eab308' },
-  { color: 'orange',       label: '留守２回以上', code: '#f97316' },
-  { color: 'red',          label: '訪問拒否',     code: '#ef4444' },
-  { color: 'gray',         label: '空家',         code: '#6b7280' }
-];
+    // --- 状態定義 ---
+    const STATUS_LIST = [
+      { color: 'white',        label: '未訪問',       code: '#ffffff' },
+      { color: 'blue',         label: '訪問済み',     code: '#3b82f6' },
+      { color: 'yellow',       label: '留守',         code: '#eab308' },
+      { color: 'orange',       label: '留守２回以上', code: '#f97316' },
+      { color: 'red',          label: '訪問拒否',     code: '#ef4444' },
+      { color: 'gray',         label: '空家',         code: '#6b7280' }
+    ];
 
-const STORAGE_KEY = 'ipad_map_markers'; // 保存用のキー名
+    // SVGパス定義
+    const SVG_PATHS = {
+      house: "M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z",
+      building: "M4 21V3h10v4h6v14H4z M6 5h2v2H6V5z M10 5h2v2h-2V5z M6 9h2v2H6V9z M10 9h2v2h-2V9z M6 13h2v2H6v-2z M10 13h2v2h-2v-2z M6 17h2v2H6v-2z M10 17h2v2h-2v-2z M15 9h3v2h-3V9z M15 13h3v2h-3v-2z M15 17h3v2h-3v-2z"
+    };
 
-let map;
-let currentActiveMarker = null;
-let longPressTimer;
-let isLongPress = false;
-let startX, startY;
+    const STORAGE_KEY = 'ipad_map_markers_v2'; 
 
-let markersDataList = []; 
-let AdvancedMarkerElementClass; 
+    let map;
+    let currentActiveMarker = null;
+    let longPressTimer;
+    let isLongPress = false;
+    let startX, startY;
 
-async function initMap() {
-  const { Map } = await google.maps.importLibrary("maps");
-  const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
-  AdvancedMarkerElementClass = AdvancedMarkerElement;
+    let markersDataList = []; 
+    let AdvancedMarkerElementClass; 
 
-  // デフォルトの初期位置（現在地が取得できない場合のフォールバック用：東京駅）
-  const defaultCenter = { lat: 35.681236, lng: 139.767125 };
+    async function initMap() {
+      const { Map } = await google.maps.importLibrary("maps");
+      const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+      AdvancedMarkerElementClass = AdvancedMarkerElement;
 
-  map = new Map(document.getElementById("map"), {
-    center: defaultCenter,
-    zoom: 14,
-    mapId: "DEMO_MAP_ID",
-    disableDoubleClickZoom: true
-  });
+      const defaultCenter = { lat: 35.681236, lng: 139.767125 };
 
-  // 1. 保存されたデータの読み込みと復元
-  loadMarkersFromStorage();
+      map = new Map(document.getElementById("map"), {
+        center: defaultCenter,
+        zoom: 14,
+        mapId: "DEMO_MAP_ID",
+        disableDoubleClickZoom: true
+      });
 
-  // 2. 凡例の追加
-  createLegend();
+      // 1. 各種UIとデータの初期化
+      loadMarkersFromStorage();
+      createModeSelector();
+      createLegend();
 
-  // 地図の何もないところをタップしたときのイベント
-  map.addListener("click", (e) => {
-    if (closeDropdown()) return;
-    const newId = Date.now().toString();
-    createHouseMarker(e.latLng, 0, newId);
-    saveMarkersToStorage(); 
-  });
-
-  // ドロップダウン外タップで閉じる設定
-  window.addEventListener('pointerdown', (e) => {
-    if (!e.target.closest('#custom-dropdown')) {
-      closeDropdown();
-    }
-  });
-
-  // 3. 【今回の修正】現在地の取得処理
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        // 現在地の取得に成功した場合
-        const pos = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
-        map.setCenter(pos);
-        map.setZoom(16); // 現在地が見やすいように少しズームイン
+      // 地図タップ時のイベント
+      map.addListener("click", (e) => {
+        if (closeDropdown()) return;
         
-        // 地図移動後に住所ダイアログを表示
-        handleAddressPrompt();
-      },
-      () => {
-        // 位置情報がブロック、または取得失敗した場合はデフォルト位置のままダイアログを表示
-        handleAddressPrompt();
-      }
-    );
-  } else {
-    // ブラウザが位置情報に対応していない場合
-    handleAddressPrompt();
-  }
-}
+        const newId = Date.now().toString();
+        const activeMode = getSelectedMode(); // 現在の選択モード（house または building）を取得
+        createCustomMarker(e.latLng, 0, newId, activeMode);
+        saveMarkersToStorage(); 
+      });
 
-// 住所入力プロンプトを制御する関数
-function handleAddressPrompt() {
-  // 地図の描画が落ち着くまでわずかに遅延させてポップアップを表示します
-  setTimeout(() => {
-    const address = prompt("特定の住所に移動したい場合は入力してください\n（現在地のままでよい場合はキャンセルまたは空欄のままOKを押してください）:");
-    if (address) {
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ address: address }, (results, status) => {
-        if (status === "OK") {
-          map.setCenter(results[0].geometry.location);
-          map.setZoom(18); // 検索した住所は詳細にズームイン
-        } else {
-          alert("住所の検索に失敗しました: " + status);
+      window.addEventListener('pointerdown', (e) => {
+        if (!e.target.closest('#custom-dropdown')) {
+          closeDropdown();
         }
       });
+
+      // 2. 現在地の取得処理
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const pos = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            map.setCenter(pos);
+            map.setZoom(16);
+            handleAddressPrompt();
+          },
+          () => { handleAddressPrompt(); }
+        );
+      } else {
+        handleAddressPrompt();
+      }
     }
-  }, 500);
-}
 
-// マーカーを生成する共通関数
-function createHouseMarker(latLng, statusIndex, id) {
-  const markerElement = document.createElement("div");
-  markerElement.style.cursor = "pointer";
-  markerElement.dataset.statusIndex = statusIndex.toString();
-  markerElement.dataset.id = id; 
-  
-  updateMarkerSVG(markerElement, statusIndex);
+    // 住所検索ダイアログ
+    function handleAddressPrompt() {
+      setTimeout(() => {
+        const address = prompt("特定の住所に移動したい場合は入力してください\n（現在の位置でよい場合は空欄かキャンセルを選択してください）:");
+        if (address) {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ address: address }, (results, status) => {
+            if (status === "OK") {
+              map.setCenter(results[0].geometry.location);
+              map.setZoom(18);
+            } else {
+              alert("住所の検索に失敗しました: " + status);
+            }
+          });
+        }
+      }, 500);
+    }
 
-  const marker = new AdvancedMarkerElementClass({
-    position: latLng,
-    map: map,
-    content: markerElement
-  });
+    // 右上のモード選択UIを生成する関数
+    function createModeSelector() {
+      const modeDiv = document.createElement("div");
+      modeDiv.className = "map-mode-selector";
+      modeDiv.innerHTML = `
+        <form id="mode-form">
+          <label><input type="radio" name="map-mode" value="house" checked>家モード</label>
+          <label><input type="radio" name="map-mode" value="building">ビルモード</label>
+        </form>
+      `;
+      map.controls[google.maps.ControlPosition.RIGHT_TOP].push(modeDiv);
+    }
 
-  markersDataList.push({
-    id: id,
-    markerObject: marker,
-    lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat,
-    lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng,
-    statusIndex: statusIndex
-  });
+    // 現在選択されているモードを取得する関数
+    function getSelectedMode() {
+      const form = document.getElementById("mode-form");
+      if (form) {
+        return form.elements["map-mode"].value;
+      }
+      return "house";
+    }
 
-  // タップ・長押し制御
-  markerElement.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    startX = e.clientX;
-    startY = e.clientY;
-    isLongPress = false;
-    longPressTimer = setTimeout(() => {
-      isLongPress = true;
-      showDropdown(e, marker);
-    }, 600);
-  });
+    // マーカーを生成する共通関数（type引数を追加）
+    function createCustomMarker(latLng, statusIndex, id, type) {
+      const markerElement = document.createElement("div");
+      markerElement.style.cursor = "pointer";
+      markerElement.dataset.statusIndex = statusIndex.toString();
+      markerElement.dataset.id = id; 
+      markerElement.dataset.type = type; // house または building をDOMに記録
+      
+      updateMarkerSVG(markerElement, statusIndex, type);
 
-  markerElement.addEventListener("pointerup", (e) => {
-    e.stopPropagation();
-    clearTimeout(longPressTimer);
-    if (isLongPress) return;
-    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
-
-    let currentIndex = parseInt(markerElement.dataset.statusIndex, 10);
-    let nextIndex = (currentIndex + 1) % STATUS_LIST.length;
-    
-    markerElement.dataset.statusIndex = nextIndex;
-    updateMarkerSVG(markerElement, nextIndex);
-    updateMarkerData(id, nextIndex);
-  });
-
-  markerElement.addEventListener("pointercancel", () => clearTimeout(longPressTimer));
-  markerElement.addEventListener("contextmenu", (e) => e.preventDefault());
-}
-
-// SVGの更新
-function updateMarkerSVG(element, index) {
-  const status = STATUS_LIST[index];
-  element.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36">
-      <path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z" fill="${status.code}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
-    </svg>
-  `;
-}
-
-// データ更新
-function updateMarkerData(id, newStatusIndex) {
-  const target = markersDataList.find(item => item.id === id);
-  if (target) {
-    target.statusIndex = newStatusIndex;
-    saveMarkersToStorage(); 
-  }
-}
-
-// ドロップダウンでの色選択
-function selectDropdownStatus(index) {
-  if (currentActiveMarker && currentActiveMarker.content) {
-    const id = currentActiveMarker.content.dataset.id;
-    currentActiveMarker.content.dataset.statusIndex = index;
-    updateMarkerSVG(currentActiveMarker.content, index);
-    updateMarkerData(id, index);
-  }
-  closeDropdown();
-}
-
-// 削除処理
-function deleteCurrentMarker() {
-  if (currentActiveMarker) {
-    const id = currentActiveMarker.content.dataset.id;
-    currentActiveMarker.map = null; 
-    markersDataList = markersDataList.filter(item => item.id !== id);
-    saveMarkersToStorage(); 
-  }
-  closeDropdown();
-}
-
-// ドロップダウン制御
-function showDropdown(event, marker) {
-  currentActiveMarker = marker;
-  const dropdown = document.getElementById("custom-dropdown");
-  dropdown.style.left = `${event.pageX}px`;
-  dropdown.style.top = `${event.pageY}px`;
-  dropdown.style.display = "block";
-}
-
-function closeDropdown() {
-  const dropdown = document.getElementById("custom-dropdown");
-  if (dropdown.style.display === "block") {
-    dropdown.style.display = "none";
-    currentActiveMarker = null;
-    return true;
-  }
-  return false;
-}
-
-// 凡例の描画
-function createLegend() {
-  const legendDiv = document.createElement("div");
-  legendDiv.className = "map-legend";
-  let html = "<h4>【凡例】</h4>";
-  STATUS_LIST.forEach(status => {
-    html += `<div class="legend-item"><div class="legend-color" style="background-color: ${status.code};"></div><div>${status.label}</div></div>`;
-  });
-  legendDiv.innerHTML = html;
-  map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
-}
-
-// --- localStorageの制御関数群 ---
-function saveMarkersToStorage() {
-  const dataToSave = markersDataList.map(item => ({
-    id: item.id,
-    lat: item.lat,
-    lng: item.lng,
-    statusIndex: item.statusIndex
-  }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-}
-
-function loadMarkersFromStorage() {
-  const savedData = localStorage.getItem(STORAGE_KEY);
-  if (savedData) {
-    try {
-      const parsedData = JSON.parse(savedData);
-      parsedData.forEach(data => {
-        const latLng = new google.maps.LatLng(data.lat, data.lng);
-        createHouseMarker(latLng, data.statusIndex, data.id);
+      const marker = new AdvancedMarkerElementClass({
+        position: latLng,
+        map: map,
+        content: markerElement
       });
-    } catch (e) {
-      console.error("保存データの読み込みに失敗しました", e);
+
+      markersDataList.push({
+        id: id,
+        markerObject: marker,
+        lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat,
+        lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng,
+        statusIndex: statusIndex,
+        type: type
+      });
+
+      // タップ・長押し制御
+      markerElement.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        startX = e.clientX;
+        startY = e.clientY;
+        isLongPress = false;
+        longPressTimer = setTimeout(() => {
+          isLongPress = true;
+          showDropdown(e, marker);
+        }, 600);
+      });
+
+      markerElement.addEventListener("pointerup", (e) => {
+        e.stopPropagation();
+        clearTimeout(longPressTimer);
+        if (isLongPress) return;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
+
+        let currentIndex = parseInt(markerElement.dataset.statusIndex, 10);
+        let nextIndex = (currentIndex + 1) % STATUS_LIST.length;
+        const currentType = markerElement.dataset.type; // 画面上の選択モードではなく、このマーカーのタイプを使用
+        
+        markerElement.dataset.statusIndex = nextIndex;
+        updateMarkerSVG(markerElement, nextIndex, currentType);
+        updateMarkerData(id, nextIndex);
+      });
+
+      markerElement.addEventListener("pointercancel", () => clearTimeout(longPressTimer));
+      markerElement.addEventListener("contextmenu", (e) => e.preventDefault());
     }
-  }
-}
-</script>
+
+    // SVGの更新（typeに応じたパスの切り替え）
+    function updateMarkerSVG(element, index, type) {
+      const status = STATUS_LIST[index];
+      const path = SVG_PATHS[type] || SVG_PATHS.house; // 万が一不正なタイプがあれば家にフォールバック
+      element.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36">
+          <path d="${path}" fill="${status.code}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      `;
+    }
+
+    // データ更新
+    function updateMarkerData(id, newStatusIndex) {
+      const target = markersDataList.find(item => item.id === id);
+      if (target) {
+        target.statusIndex = newStatusIndex;
+        saveMarkersToStorage(); 
+      }
+    }
+
+    // ドロップダウンでの色選択
+    function selectDropdownStatus(index) {
+      if (currentActiveMarker && currentActiveMarker.content) {
+        const id = currentActiveMarker.content.dataset.id;
+        const currentType = currentActiveMarker.content.dataset.type;
+        currentActiveMarker.content.dataset.statusIndex = index;
+        updateMarkerSVG(currentActiveMarker.content, index, currentType);
+        updateMarkerData(id, index);
+      }
+      closeDropdown();
+    }
+
+    // 削除処理
+    function deleteCurrentMarker() {
+      if (currentActiveMarker) {
+        const id = currentActiveMarker.content.dataset.id;
+        currentActiveMarker.map = null; 
+        markersDataList = markersDataList.filter(item => item.id !== id);
+        saveMarkersToStorage(); 
+      }
+      closeDropdown();
+    }
+
+    // ドロップダウン制御
+    function showDropdown(event, marker) {
+      currentActiveMarker = marker;
+      const dropdown = document.getElementById("custom-dropdown");
+      dropdown.style.left = `${event.pageX}px`;
+      dropdown.style.top = `${event.pageY}px`;
+      dropdown.style.display = "block";
+    }
+
+    function closeDropdown() {
+      const dropdown = document.getElementById("custom-dropdown");
+      if (dropdown.style.display === "block") {
+        dropdown.style.display = "none";
+        currentActiveMarker = null;
+        return true;
+      }
+      return false;
+    }
+
+    // 凡例の描画
+    function createLegend() {
+      const legendDiv = document.createElement("div");
+      legendDiv.className = "map-legend";
+      let html = "<h4>【凡例】</h4>";
+      STATUS_LIST.forEach(status => {
+        html += `<div class="legend-item"><div class="legend-color" style="background-color: ${status.code};"></div><div>${status.label}</div></div>`;
+      });
+      legendDiv.innerHTML = html;
+      map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
+    }
+
+    // --- localStorageの制御関数群 ---
+    function saveMarkersToStorage() {
+      const dataToSave = markersDataList.map(item => ({
+        id: item.id,
+        lat: item.lat,
+        lng: item.lng,
+        statusIndex: item.statusIndex,
+        type: item.type // タイプ情報（house / building）もあわせて保存
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    }
+
+    function loadMarkersFromStorage() {
+      const savedData = localStorage.getItem(STORAGE_KEY);
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          parsedData.forEach(data => {
+            const latLng = new google.maps.LatLng(data.lat, data.lng);
+            // 過去データにtypeがない場合は'house'として扱う
+            const type = data.type || 'house';
+            createCustomMarker(latLng, data.statusIndex, data.id, type);
+          });
+        } catch (e) {
+          console.error("保存データの読み込みに失敗しました", e);
+        }
+      }
+    }
+  </script>
 </head>
 <body>
 
