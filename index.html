@@ -1,170 +1,94 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Google Map iPad Custom Tool (Building Room Manager)</title>
+  <title>Google Map iPad Custom Tool (Advanced Room Manager)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
     #map { height: 100vh; width: 100%; }
 
-    /* iPadの長押しによる標準メニューや選択を抑制 */
-    * {
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
+    /* iPadの長押しメニュー抑制 */
+    * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-    /* 右上のコントロールパネル */
+    /* UIパネル */
     .map-control-panel {
-      background: white;
-      padding: 6px;
-      margin: 10px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      background: white; padding: 6px; margin: 10px; border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 8px;
     }
     .mode-buttons { display: flex; gap: 6px; }
     .control-btn {
-      width: 50px;
-      height: 50px;
-      background: #f3f4f6;
-      border: 2px solid #e5e7eb;
-      border-radius: 10px;
-      font-size: 22px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      padding: 0;
+      width: 50px; height: 50px; background: #f3f4f6; border: 2px solid #e5e7eb;
+      border-radius: 10px; font-size: 22px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; transition: all 0.2s ease; padding: 0;
     }
-    .control-btn.active {
-      background: #3b82f6;
-      border-color: #2563eb;
-    }
+    .control-btn.active { background: #3b82f6; border-color: #2563eb; }
     .control-btn.search-btn { width: 106px; background: #ffffff; border-color: #3b82f6; }
 
-    /* 凡例（地図右下）のスタイル */
+    /* 凡例 */
     .map-legend {
-      background: white;
-      padding: 12px;
-      margin: 10px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      font-size: 13px;
-      line-height: 20px;
+      background: white; padding: 12px; margin: 10px; border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-size: 13px; line-height: 20px;
     }
     .map-legend h4 { margin: 0 0 6px 0; font-size: 14px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
     .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
     .legend-color { width: 16px; height: 16px; margin-right: 8px; border: 1px solid #333; border-radius: 3px; }
 
-    /* カスタムドロップダウンメニューのスタイル */
+    /* ドロップダウンメニュー */
     #custom-dropdown {
-      display: none;
-      position: absolute;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      padding: 6px 0;
-      min-width: 140px;
+      display: none; position: absolute; background: white; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; padding: 6px 0; min-width: 140px;
     }
-    .dropdown-item {
-      padding: 10px 16px;
-      font-size: 14px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-    }
+    .dropdown-item { padding: 10px 16px; font-size: 14px; cursor: pointer; display: flex; align-items: center; }
     .dropdown-item:active { background-color: #f0f0f0; }
     .dropdown-item .color-badge { width: 12px; height: 12px; margin-right: 8px; border: 1px solid #333; border-radius: 2px; }
     .dropdown-item.delete-item { color: #dc2626; font-weight: bold; border-top: 1px solid #eee; margin-top: 4px; }
 
-    /* --- 部屋管理モーダルのスタイル --- */
+    /* --- 部屋管理モーダル --- */
     #room-modal {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5);
-      z-index: 20000;
-      align-items: center;
-      justify-content: center;
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); z-index: 20000; align-items: center; justify-content: center;
     }
     .modal-content {
-      background: white;
-      width: 90%;
-      max-width: 600px;
-      height: 80%;
-      border-radius: 16px;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-      overflow: hidden;
+      background: white; width: 95%; max-width: 650px; height: 85%;
+      border-radius: 16px; display: flex; flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow: hidden;
     }
     .modal-header {
-      padding: 16px;
-      background: #f3f4f6;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      padding: 16px; background: #f3f4f6; border-bottom: 1px solid #e5e7eb;
+      display: flex; justify-content: space-between; align-items: center;
     }
     .modal-header h3 { margin: 0; font-size: 18px; }
-    .close-modal-btn {
-      background: none; border: none; font-size: 24px; cursor: pointer; padding: 4px 8px;
-    }
+    .close-modal-btn { background: none; border: none; font-size: 24px; cursor: pointer; padding: 4px 8px; }
+    
+    /* ツールバーを拡張（ボタンが増えるため flex-wrap で折り返し対応） */
     .modal-toolbar {
-      padding: 12px;
-      display: flex;
-      gap: 10px;
-      background: #fafafa;
-      border-bottom: 1px solid #e5e7eb;
+      padding: 12px; display: flex; flex-wrap: wrap; gap: 8px;
+      background: #fafafa; border-bottom: 1px solid #e5e7eb;
     }
     .toolbar-btn {
-      flex: 1;
-      padding: 12px;
-      font-size: 14px;
-      font-weight: bold;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      background: white;
-      cursor: pointer;
+      flex: 1 1 calc(33% - 8px); min-width: 120px; padding: 10px; font-size: 13px;
+      font-weight: bold; border: 1px solid #d1d5db; border-radius: 8px;
+      background: white; cursor: pointer; text-align: center;
     }
-    .toolbar-btn:active { background: #f3f4f6; }
+    .toolbar-btn:active { background: #e5e7eb; }
+    .btn-danger { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+    .btn-danger:active { background: #fee2e2; }
+
     .modal-body {
-      flex: 1;
-      padding: 16px;
-      overflow: auto;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
+      flex: 1; padding: 16px; overflow: auto; display: flex;
+      align-items: flex-start; justify-content: center;
     }
-    /* 部屋グリッドの配置（マンションのように下層から積み上がる構造に対応） */
-    .room-grid-table {
-      border-collapse: separate;
-      border-spacing: 6px;
-    }
+    .room-grid-table { border-collapse: separate; border-spacing: 6px; }
     .room-cell {
-      width: 70px;
-      height: 45px;
-      border: 1.5px solid #1a1a1a;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      width: 70px; height: 45px; border: 1.5px solid #1a1a1a; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
   </style>
 
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&callback=initMap" async defer></script>
   
   <script>
-    // --- 状態定義 ---
     const STATUS_LIST = [
       { color: 'white',        label: '未訪問',       code: '#ffffff' },
       { color: 'blue',         label: '訪問済み',     code: '#3b82f6' },
@@ -179,20 +103,18 @@
       building: "M4 21V3h10v4h6v14H4z M6 5h2v2H6V5z M10 5h2v2h-2V5z M6 9h2v2H6V9z M10 9h2v2h-2V9z M6 13h2v2H6v-2z M10 13h2v2h-2v-2z M6 17h2v2H6v-2z M10 17h2v2h-2v-2z M15 9h3v2h-3V9z M15 13h3v2h-3v-2z M15 17h3v2h-3v-2z"
     };
 
-    const STORAGE_KEY = 'ipad_map_markers_v4'; 
+    // スキーマ拡張のためストレージキーを更新
+    const STORAGE_KEY = 'ipad_map_markers_v5'; 
 
-    let map;
-    let currentActiveMarker = null; // 長押しメニューの対象マーカー
-    let currentActiveRoomNo = null;  // 長押しメニューの対象部屋番号
-    let currentEditingBuildingId = null; // モーダルで編集中ビルのID
-    
+    let map, AdvancedMarkerElementClass;
+    let currentActiveMarker = null; 
+    let currentActiveRoomNo = null;  
+    let currentEditingBuildingId = null; 
     let longPressTimer;
     let isLongPress = false;
     let startX, startY;
     let currentMode = 'house'; 
-
     let markersDataList = []; 
-    let AdvancedMarkerElementClass; 
 
     async function initMap() {
       const { Map } = await google.maps.importLibrary("maps");
@@ -201,9 +123,7 @@
 
       map = new Map(document.getElementById("map"), {
         center: { lat: 35.681236, lng: 139.767125 },
-        zoom: 14,
-        mapId: "DEMO_MAP_ID",
-        disableDoubleClickZoom: true
+        zoom: 14, mapId: "DEMO_MAP_ID", disableDoubleClickZoom: true
       });
 
       loadMarkersFromStorage();
@@ -218,9 +138,7 @@
       });
 
       window.addEventListener('pointerdown', (e) => {
-        if (!e.target.closest('#custom-dropdown')) {
-          closeDropdown();
-        }
+        if (!e.target.closest('#custom-dropdown')) closeDropdown();
       });
 
       if (navigator.geolocation) {
@@ -231,15 +149,12 @@
       }
     }
 
-    function handleAddressPrompt() {
+function handleAddressPrompt() {
       const address = prompt("表示したい住所を入力してください:");
       if (address) {
         const geocoder = new google.maps.Geocoder();
         geocoder.geocode({ address: address }, (results, status) => {
-          if (status === "OK") {
-            map.setCenter(results[0].geometry.location);
-            map.setZoom(18);
-          } else { alert("住所の検索に失敗しました: " + status); }
+          if (status === "OK") { map.setCenter(results[0].geometry.location); map.setZoom(18); }
         });
       }
     }
@@ -264,7 +179,6 @@
       document.getElementById(mode === 'house' ? "btn-house" : "btn-building").classList.add("active");
     }
 
-    // マーカー生成（部屋情報 rooms 構造の追加）
     function createCustomMarker(latLng, statusIndex, id, type, savedRoomsData = null) {
       const markerElement = document.createElement("div");
       markerElement.style.cursor = "pointer";
@@ -275,67 +189,43 @@
       updateMarkerSVG(markerElement, statusIndex, type);
 
       const marker = new AdvancedMarkerElementClass({
-        position: latLng,
-        map: map,
-        content: markerElement,
-        gmpDraggable: true 
+        position: latLng, map: map, content: markerElement, gmpDraggable: true 
       });
 
       marker.addListener("dragend", (event) => {
         const target = markersDataList.find(item => item.id === id);
-        if (target) {
-          target.lat = event.latLng.lat();
-          target.lng = event.latLng.lng();
-          saveMarkersToStorage();
-        }
+        if (target) { target.lat = event.latLng.lat(); target.lng = event.latLng.lng(); saveMarkersToStorage(); }
       });
 
-      // ビルの場合、初期の部屋構造（1階1列の101号室のみ）を定義
       let roomsStructure = savedRoomsData;
       if (!roomsStructure && type === 'building') {
         roomsStructure = {
-          maxFloor: 1,
-          maxRoomNum: 1,
-          states: { "101": 0 } // 部屋番号とステータス番号のマップ
+          maxFloor: 1, maxRoomNum: 1, states: { "101": 0 }, hiddenRooms: [] // 非表示管理配列を追加
         };
       }
 
       markersDataList.push({
-        id: id,
-        markerObject: marker,
+        id: id, markerObject: marker,
         lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat,
         lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng,
-        statusIndex: statusIndex,
-        type: type,
-        rooms: roomsStructure
+        statusIndex: statusIndex, type: type, rooms: roomsStructure
       });
 
-      // タップ・長押しイベント（iPad最適化）
       markerElement.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-        startX = e.clientX; startY = e.clientY;
-        isLongPress = false;
-        longPressTimer = setTimeout(() => {
-          isLongPress = true;
-          showDropdown(e, marker, type); // タイプを渡す
-        }, 600);
+        e.stopPropagation(); startX = e.clientX; startY = e.clientY; isLongPress = false;
+        longPressTimer = setTimeout(() => { isLongPress = true; showDropdown(e, marker, type); }, 600);
       });
 
       markerElement.addEventListener("pointerup", (e) => {
-        e.stopPropagation();
-        clearTimeout(longPressTimer);
-        if (isLongPress) return;
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
+        e.stopPropagation(); clearTimeout(longPressTimer);
+        if (isLongPress || Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
 
         if (type === 'house') {
-          // 家モード：従来通り1タップごとに色変更
-          let currentIndex = parseInt(markerElement.dataset.statusIndex, 10);
-          let nextIndex = (currentIndex + 1) % STATUS_LIST.length;
+          let nextIndex = (parseInt(markerElement.dataset.statusIndex, 10) + 1) % STATUS_LIST.length;
           markerElement.dataset.statusIndex = nextIndex;
           updateMarkerSVG(markerElement, nextIndex, 'house');
           updateMarkerData(id, nextIndex);
         } else if (type === 'building') {
-          // ビルモード：色変更はせず、部屋管理モーダルを開く
           openRoomModal(id);
         }
       });
@@ -346,13 +236,10 @@
 
     function updateMarkerSVG(element, index, type) {
       const status = STATUS_LIST[index];
-      const path = SVG_PATHS[type] || SVG_PATHS.house;
-      // ビル（アパート）アイコンは要件通り色は変化しないため常にグレー（固定）または未訪問白にする設計
-      // ここではビルの初期枠線を黒、中身を分かりやすく薄いグレー等で固定します
       const fillColor = (type === 'building') ? '#9ca3af' : status.code;
       element.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36">
-          <path d="${path}" fill="${fillColor}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="${SVG_PATHS[type] || SVG_PATHS.house}" fill="${fillColor}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>
       `;
     }
@@ -362,65 +249,40 @@
       if (target) { target.statusIndex = newStatusIndex; saveMarkersToStorage(); }
     }
 
-    // 長押しメニューの表示制御（ビル長押し時は削除のみ表示）
     function showDropdown(event, marker, type, isRoom = false, roomNo = null) {
-      currentActiveMarker = marker;
-      currentActiveRoomNo = roomNo;
+      currentActiveMarker = marker; currentActiveRoomNo = roomNo;
       const dropdown = document.getElementById("custom-dropdown");
-      
-      // メニュー項目のリセットと切り替え
       const items = dropdown.querySelectorAll(".dropdown-item");
+      
       if (type === 'building' && !isRoom) {
-        // ビルアイコン本体の長押し時は、色選択を隠して「削除」だけを提示
-        items.forEach(item => {
-          if(item.classList.contains("delete-item")) { item.style.display = "flex"; }
-          else { item.style.display = "none"; }
-        });
+        items.forEach(item => item.style.display = item.classList.contains("delete-item") ? "flex" : "none");
       } else {
-        // 家、またはアパートの各部屋の長押し時はすべて表示
-        items.forEach(item => {
-          if(item.classList.contains("delete-item") && isRoom) {
-            item.style.display = "none"; // 部屋自体のコンテキストメニューに削除ボタンは不要
-          } else {
-            item.style.display = "flex";
-          }
-        });
+        items.forEach(item => item.style.display = (item.classList.contains("delete-item") && isRoom) ? "none" : "flex");
       }
 
-      dropdown.style.left = `${event.pageX}px`;
-      dropdown.style.top = `${event.pageY}px`;
-      dropdown.style.display = "block";
+      dropdown.style.left = `${event.pageX}px`; dropdown.style.top = `${event.pageY}px`; dropdown.style.display = "block";
     }
 
     function closeDropdown() {
       const dropdown = document.getElementById("custom-dropdown");
-      if (dropdown.style.display === "block") {
-        dropdown.style.display = "none";
-        return true;
-      }
+      if (dropdown.style.display === "block") { dropdown.style.display = "none"; return true; }
       return false;
     }
 
-    // ドロップダウンでの色・ステータス選択（部屋にも対応）
     function selectDropdownStatus(index) {
       if (currentActiveRoomNo && currentEditingBuildingId) {
-        // モーダル内の部屋に対する色選択の場合
         const targetBuilding = markersDataList.find(item => item.id === currentEditingBuildingId);
         if (targetBuilding && targetBuilding.rooms) {
           targetBuilding.rooms.states[currentActiveRoomNo] = index;
-          renderRoomGrid(targetBuilding);
-          saveMarkersToStorage();
+          renderRoomGrid(targetBuilding); saveMarkersToStorage();
         }
       } else if (currentActiveMarker && currentActiveMarker.content) {
-        // 地図上の家アイコンに対する色選択の場合
         const id = currentActiveMarker.content.dataset.id;
-        const currentType = currentActiveMarker.content.dataset.type;
         currentActiveMarker.content.dataset.statusIndex = index;
-        updateMarkerSVG(currentActiveMarker.content, index, currentType);
+        updateMarkerSVG(currentActiveMarker.content, index, currentActiveMarker.content.dataset.type);
         updateMarkerData(id, index);
       }
-      closeDropdown();
-      currentActiveRoomNo = null;
+      closeDropdown(); currentActiveRoomNo = null;
     }
 
     function deleteCurrentMarker() {
@@ -434,142 +296,149 @@
     }
 
     function createLegend() {
-      const legendDiv = document.createElement("div");
-      legendDiv.className = "map-legend";
+      const legendDiv = document.createElement("div"); legendDiv.className = "map-legend";
       let html = "<h4>【凡例】</h4>";
-      STATUS_LIST.forEach(status => {
-        html += `<div class="legend-item"><div class="legend-color" style="background-color: ${status.code};"></div><div>${status.label}</div></div>`;
-      });
-      legendDiv.innerHTML = html;
-      map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
+      STATUS_LIST.forEach(s => html += `<div class="legend-item"><div class="legend-color" style="background-color: ${s.code};"></div><div>${s.label}</div></div>`);
+      legendDiv.innerHTML = html; map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
     }
 
-// --- モーダル（部屋管理画面）の制御ロジック ---
+    /* --- 部屋管理ロジック --- */
     function openRoomModal(buildingId) {
       currentEditingBuildingId = buildingId;
       const targetBuilding = markersDataList.find(item => item.id === buildingId);
       if (!targetBuilding) return;
-
-      const modal = document.getElementById("room-modal");
-      modal.style.display = "flex";
-      
+      document.getElementById("room-modal").style.display = "flex";
       renderRoomGrid(targetBuilding);
     }
 
     function closeRoomModal() {
-      document.getElementById("room-modal").style.display = "none";
-      currentEditingBuildingId = null;
+      document.getElementById("room-modal").style.display = "none"; currentEditingBuildingId = null;
     }
 
-    // 行（階数）を増やす：201, 301, 401...と上に積み増し
+    // 行（階）を追加
     function addFloorRow() {
-      const targetBuilding = markersDataList.find(item => item.id === currentEditingBuildingId);
-      if (!targetBuilding || !targetBuilding.rooms) return;
-
-      targetBuilding.rooms.maxFloor += 1;
-      const newFloor = targetBuilding.rooms.maxFloor;
-      
-      // 新しい階の全列分の部屋データを初期値0(未訪問)で生成
-      for (let r = 1; r <= targetBuilding.rooms.maxRoomNum; r++) {
-        const roomNo = `${newFloor}${String(r).padStart(2, '0')}`;
-        targetBuilding.rooms.states[roomNo] = 0;
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      b.rooms.maxFloor += 1;
+      for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+        b.rooms.states[`${b.rooms.maxFloor}${String(r).padStart(2, '0')}`] = 0;
       }
-      
-      renderRoomGrid(targetBuilding);
-      saveMarkersToStorage();
+      renderRoomGrid(b); saveMarkersToStorage();
     }
 
-    // 列（部屋数）を増やす：102, 103, 104...と右に拡張
+    // 行（階）を削除
+    function removeFloorRow() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms || b.rooms.maxFloor <= 1) return; // 1階未満にはできない
+      
+      const f = b.rooms.maxFloor;
+      for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+        const roomNo = `${f}${String(r).padStart(2, '0')}`;
+        delete b.rooms.states[roomNo];
+        if (b.rooms.hiddenRooms) {
+          b.rooms.hiddenRooms = b.rooms.hiddenRooms.filter(room => room !== roomNo);
+        }
+      }
+      b.rooms.maxFloor -= 1;
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 列（部屋番号）を追加
     function addRoomColumn() {
-      const targetBuilding = markersDataList.find(item => item.id === currentEditingBuildingId);
-      if (!targetBuilding || !targetBuilding.rooms) return;
-
-      targetBuilding.rooms.maxRoomNum += 1;
-      const newColIdx = targetBuilding.rooms.maxRoomNum;
-      
-      // 既存のすべての階に対して、新しい列の部屋データを生成
-      for (let f = 1; f <= targetBuilding.rooms.maxFloor; f++) {
-        const roomNo = `${f}${String(f).padStart(1, '')}${String(newColIdx).padStart(2, '0')}`;
-        // 階表記を統一（f+0X形式）
-        const formattedRoomNo = `${f}${String(newColIdx).padStart(2, '0')}`;
-        targetBuilding.rooms.states[formattedRoomNo] = 0;
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      b.rooms.maxRoomNum += 1;
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        b.rooms.states[`${f}${String(b.rooms.maxRoomNum).padStart(2, '0')}`] = 0;
       }
-
-      renderRoomGrid(targetBuilding);
-      saveMarkersToStorage();
+      renderRoomGrid(b); saveMarkersToStorage();
     }
 
-    // 部屋グリッドの動的レンダリング（iPad用ポインターイベント設定含む）
+    // 列（部屋番号）を削除
+    function removeRoomColumn() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms || b.rooms.maxRoomNum <= 1) return; // 1部屋未満にはできない
+      
+      const r = b.rooms.maxRoomNum;
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        const roomNo = `${f}${String(r).padStart(2, '0')}`;
+        delete b.rooms.states[roomNo];
+        if (b.rooms.hiddenRooms) {
+          b.rooms.hiddenRooms = b.rooms.hiddenRooms.filter(room => room !== roomNo);
+        }
+      }
+      b.rooms.maxRoomNum -= 1;
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 4で終わる部屋を削除（非表示リストに追加）
+    function hideRoomsEndingInFour() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      if (!b.rooms.hiddenRooms) b.rooms.hiddenRooms = [];
+
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+          // 列インデックスの末尾が4の場合（例: 4番目, 14番目）
+          if (r % 10 === 4) {
+            const roomNo = `${f}${String(r).padStart(2, '0')}`;
+            if (!b.rooms.hiddenRooms.includes(roomNo)) {
+              b.rooms.hiddenRooms.push(roomNo);
+            }
+          }
+        }
+      }
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // グリッド描画（非表示スキップ処理を含む）
     function renderRoomGrid(building) {
       const container = document.getElementById("room-grid-container");
       container.innerHTML = "";
-
-      const table = document.createElement("table");
-      table.className = "room-grid-table";
-
+      const table = document.createElement("table"); table.className = "room-grid-table";
       const rooms = building.rooms;
 
-      // マンション構造を表現するため、最上階（maxFloor）から1階へ向かってループを生成
       for (let f = rooms.maxFloor; f >= 1; f--) {
         const tr = document.createElement("tr");
-        
         for (let r = 1; r <= rooms.maxRoomNum; r++) {
           const roomNo = `${f}${String(r).padStart(2, '0')}`;
+          
+          // 削除された（非表示の）部屋はDOMを生成せずスキップすることで列を詰める
+          if (rooms.hiddenRooms && rooms.hiddenRooms.includes(roomNo)) continue;
+
           const statusIdx = rooms.states[roomNo] !== undefined ? rooms.states[roomNo] : 0;
           const statusConfig = STATUS_LIST[statusIdx];
 
           const td = document.createElement("td");
           const cell = document.createElement("div");
-          cell.className = "room-cell";
-          cell.innerText = roomNo;
+          cell.className = "room-cell"; cell.innerText = roomNo;
           cell.style.backgroundColor = statusConfig.code;
-          
-          // 白文字の可読性確保のためのフォントカラー調整
           cell.style.color = (statusConfig.color === 'white' || statusConfig.color === 'yellow') ? '#1a1a1a' : '#ffffff';
 
-          // 部屋セルに対するタップ・長押し判定
           cell.addEventListener("pointerdown", (e) => {
-            e.stopPropagation();
-            startX = e.clientX; startY = e.clientY;
-            isLongPress = false;
-            longPressTimer = setTimeout(() => {
-              isLongPress = true;
-              showDropdown(e, null, 'house', true, roomNo); // 部屋用の長押しドロップダウン表示
-            }, 600);
+            e.stopPropagation(); startX = e.clientX; startY = e.clientY; isLongPress = false;
+            longPressTimer = setTimeout(() => { isLongPress = true; showDropdown(e, null, 'house', true, roomNo); }, 600);
           });
 
           cell.addEventListener("pointerup", (e) => {
-            e.stopPropagation();
-            clearTimeout(longPressTimer);
-            if (isLongPress) return;
-            if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
-
-            // 通常タップ：1回ごとにステータスをループ変更
-            let nextIndex = (statusIdx + 1) % STATUS_LIST.length;
-            rooms.states[roomNo] = nextIndex;
-            renderRoomGrid(building);
-            saveMarkersToStorage();
+            e.stopPropagation(); clearTimeout(longPressTimer);
+            if (isLongPress || Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
+            rooms.states[roomNo] = (statusIdx + 1) % STATUS_LIST.length;
+            renderRoomGrid(building); saveMarkersToStorage();
           });
 
           cell.addEventListener("pointercancel", () => clearTimeout(longPressTimer));
-
-          td.appendChild(cell);
-          tr.appendChild(td);
+          td.appendChild(cell); tr.appendChild(td);
         }
         table.appendChild(tr);
       }
       container.appendChild(table);
     }
 
-    // --- localStorage 制御（階層保存構造 v4） ---
     function saveMarkersToStorage() {
       const dataToSave = markersDataList.map(item => ({
-        id: item.id,
-        lat: item.lat,
-        lng: item.lng,
-        statusIndex: item.statusIndex,
-        type: item.type,
-        rooms: item.rooms // ビルの部屋構造・各ステータスも丸ごと内包して永続化
+        id: item.id, lat: item.lat, lng: item.lng,
+        statusIndex: item.statusIndex, type: item.type, rooms: item.rooms 
       }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
     }
@@ -609,12 +478,14 @@
         <button type="button" class="close-modal-btn" onclick="closeRoomModal()">×</button>
       </div>
       <div class="modal-toolbar">
-        <button type="button" class="toolbar-btn" onclick="addFloorRow()">＋ 行を増やす (上の階)</button>
-        <button type="button" class="toolbar-btn" onclick="addRoomColumn()">＋ 列を増やす (部屋番号)</button>
+        <button type="button" class="toolbar-btn" onclick="addFloorRow()">＋ 行追加 (上階)</button>
+        <button type="button" class="toolbar-btn" onclick="addRoomColumn()">＋ 列追加 (部屋)</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="removeFloorRow()">－ 行削除</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="removeRoomColumn()">－ 列削除</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="hideRoomsEndingInFour()">✖ 「4」を削除</button>
       </div>
       <div class="modal-body">
-        <div id="room-grid-container">
-          </div>
+        <div id="room-grid-container"></div>
       </div>
     </div>
   </div>
