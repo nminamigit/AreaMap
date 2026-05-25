@@ -364,6 +364,48 @@
       map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
     }
 
-    // --- localStorageの制御関数群 ---
+// --- localStorageの制御関数群 ---
     function saveMarkersToStorage() {
-      const dataToSave =
+      const dataToSave = markersDataList.map(item => ({
+        id: item.id,
+        lat: item.lat,
+        lng: item.lng,
+        statusIndex: item.statusIndex,
+        type: item.type 
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    }
+
+    function loadMarkersFromStorage() {
+      const savedData = localStorage.getItem(STORAGE_KEY);
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          parsedData.forEach(data => {
+            const latLng = new google.maps.LatLng(data.lat, data.lng);
+            const type = data.type || 'house';
+            createCustomMarker(latLng, data.statusIndex, data.id, type);
+          });
+        } catch (e) {
+          console.error("保存データの読み込みに失敗しました", e);
+        }
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div id="custom-dropdown">
+    <div class="dropdown-item" onclick="selectDropdownStatus(0)"><div class="color-badge" style="background:#ffffff;"></div>未訪問</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(1)"><div class="color-badge" style="background:#3b82f6;"></div>訪問済み</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(2)"><div class="color-badge" style="background:#eab308;"></div>留守</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(3)"><div class="color-badge" style="background:#f97316;"></div>留守２回以上</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(4)"><div class="color-badge" style="background:#ef4444;"></div>訪問拒否</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(5)"><div class="color-badge" style="background:#6b7280;"></div>空家</div>
+    <div class="dropdown-item delete-item" onclick="deleteCurrentMarker()">アイコンを削除</div>
+  </div>
+
+</body>
+</html>
