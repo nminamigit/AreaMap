@@ -72,17 +72,19 @@ let longPressTimer;
 let isLongPress = false;
 let startX, startY;
 
-// 現在のマーカーオブジェクトとデータを紐づけて管理する配列
 let markersDataList = []; 
-let AdvancedMarkerElementClass; // クラスを保持用
+let AdvancedMarkerElementClass; 
 
 async function initMap() {
   const { Map } = await google.maps.importLibrary("maps");
   const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
   AdvancedMarkerElementClass = AdvancedMarkerElement;
 
+  // デフォルトの初期位置（現在地が取得できない場合のフォールバック用：東京駅）
+  const defaultCenter = { lat: 35.681236, lng: 139.767125 };
+
   map = new Map(document.getElementById("map"), {
-    center: { lat: 35.681236, lng: 139.767125 },
+    center: defaultCenter,
     zoom: 14,
     mapId: "DEMO_MAP_ID",
     disableDoubleClickZoom: true
@@ -91,44 +93,67 @@ async function initMap() {
   // 1. 保存されたデータの読み込みと復元
   loadMarkersFromStorage();
 
-  google.maps.event.addListenerOnce(map, 'tilesloaded', () => {
-    const address = prompt("表示したい住所を入力してください:");
-    if (address) {
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ address: address }, (results, status) => {
-        if (status === "OK") {
-          map.setCenter(results[0].geometry.location);
-          map.setZoom(18);
-        }
-      });
-    }
-  });
-  if (address) {
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({ address: address }, (results, status) => {
-      if (status === "OK") {
-        map.setCenter(results[0].geometry.location);
-        map.setZoom(18);
-      }
-    });
-  }
-
-  map.addListener("click", (e) => {
-    if (closeDropdown()) return;
-    
-    // 新規作成時はIDを新規発行し、色は「0（未訪問）」
-    const newId = Date.now().toString();
-    createHouseMarker(e.latLng, 0, newId);
-    saveMarkersToStorage(); // 保存
-  });
-
+  // 2. 凡例の追加
   createLegend();
 
+  // 地図の何もないところをタップしたときのイベント
+  map.addListener("click", (e) => {
+    if (closeDropdown()) return;
+    const newId = Date.now().toString();
+    createHouseMarker(e.latLng, 0, newId);
+    saveMarkersToStorage(); 
+  });
+
+  // ドロップダウン外タップで閉じる設定
   window.addEventListener('pointerdown', (e) => {
     if (!e.target.closest('#custom-dropdown')) {
       closeDropdown();
     }
   });
+
+  // 3. 【今回の修正】現在地の取得処理
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        // 現在地の取得に成功した場合
+        const pos = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+        map.setCenter(pos);
+        map.setZoom(16); // 現在地が見やすいように少しズームイン
+        
+        // 地図移動後に住所ダイアログを表示
+        handleAddressPrompt();
+      },
+      () => {
+        // 位置情報がブロック、または取得失敗した場合はデフォルト位置のままダイアログを表示
+        handleAddressPrompt();
+      }
+    );
+  } else {
+    // ブラウザが位置情報に対応していない場合
+    handleAddressPrompt();
+  }
+}
+
+// 住所入力プロンプトを制御する関数
+function handleAddressPrompt() {
+  // 地図の描画が落ち着くまでわずかに遅延させてポップアップを表示します
+  setTimeout(() => {
+    const address = prompt("特定の住所に移動したい場合は入力してください\n（現在地のままでよい場合はキャンセルまたは空欄のままOKを押してください）:");
+    if (address) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: address }, (results, status) => {
+        if (status === "OK") {
+          map.setCenter(results[0].geometry.location);
+          map.setZoom(18); // 検索した住所は詳細にズームイン
+        } else {
+          alert("住所の検索に失敗しました: " + status);
+        }
+      });
+    }
+  }, 500);
 }
 
 // マーカーを生成する共通関数
@@ -136,7 +161,7 @@ function createHouseMarker(latLng, statusIndex, id) {
   const markerElement = document.createElement("div");
   markerElement.style.cursor = "pointer";
   markerElement.dataset.statusIndex = statusIndex.toString();
-  markerElement.dataset.id = id; // 一意のIDを持たせる
+  markerElement.dataset.id = id; 
   
   updateMarkerSVG(markerElement, statusIndex);
 
@@ -146,7 +171,6 @@ function createHouseMarker(latLng, statusIndex, id) {
     content: markerElement
   });
 
-  // 管理配列に追加
   markersDataList.push({
     id: id,
     markerObject: marker,
@@ -155,7 +179,7 @@ function createHouseMarker(latLng, statusIndex, id) {
     statusIndex: statusIndex
   });
 
-  // --- タップ・長押し制御（前回と同じ） ---
+  // タップ・長押し制御
   markerElement.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     startX = e.clientX;
@@ -178,8 +202,6 @@ function createHouseMarker(latLng, statusIndex, id) {
     
     markerElement.dataset.statusIndex = nextIndex;
     updateMarkerSVG(markerElement, nextIndex);
-    
-    // 配列のデータを更新して保存
     updateMarkerData(id, nextIndex);
   });
 
@@ -197,12 +219,12 @@ function updateMarkerSVG(element, index) {
   `;
 }
 
-// データ更新と保存処理
+// データ更新
 function updateMarkerData(id, newStatusIndex) {
   const target = markersDataList.find(item => item.id === id);
   if (target) {
     target.statusIndex = newStatusIndex;
-    saveMarkersToStorage(); // 状態が変わるたびに保存
+    saveMarkersToStorage(); 
   }
 }
 
@@ -221,10 +243,9 @@ function selectDropdownStatus(index) {
 function deleteCurrentMarker() {
   if (currentActiveMarker) {
     const id = currentActiveMarker.content.dataset.id;
-    currentActiveMarker.map = null; // 地図から消す
-    // 管理配列から除外
+    currentActiveMarker.map = null; 
     markersDataList = markersDataList.filter(item => item.id !== id);
-    saveMarkersToStorage(); // 削除後の状態を保存
+    saveMarkersToStorage(); 
   }
   closeDropdown();
 }
@@ -248,8 +269,8 @@ function closeDropdown() {
   return false;
 }
 
+// 凡例の描画
 function createLegend() {
-  // 前回と同じため中身は省略せずに組み込んでください
   const legendDiv = document.createElement("div");
   legendDiv.className = "map-legend";
   let html = "<h4>【凡例】</h4>";
@@ -261,8 +282,6 @@ function createLegend() {
 }
 
 // --- localStorageの制御関数群 ---
-
-// 保存処理（配列をJSONにしてブラウザに記録）
 function saveMarkersToStorage() {
   const dataToSave = markersDataList.map(item => ({
     id: item.id,
@@ -273,7 +292,6 @@ function saveMarkersToStorage() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
 }
 
-// 読み込み処理（ブラウザからJSONを取り出して地図に再配置）
 function loadMarkersFromStorage() {
   const savedData = localStorage.getItem(STORAGE_KEY);
   if (savedData) {
