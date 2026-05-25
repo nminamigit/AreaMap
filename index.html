@@ -91,7 +91,18 @@ async function initMap() {
   // 1. 保存されたデータの読み込みと復元
   loadMarkersFromStorage();
 
-  const address = prompt("表示したい住所を入力してください:");
+  google.maps.event.addListenerOnce(map, 'tilesloaded', () => {
+    const address = prompt("表示したい住所を入力してください:");
+    if (address) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: address }, (results, status) => {
+        if (status === "OK") {
+          map.setCenter(results[0].geometry.location);
+          map.setZoom(18);
+        }
+      });
+    }
+  });
   if (address) {
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: address }, (results, status) => {
