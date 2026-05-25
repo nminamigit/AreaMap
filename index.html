@@ -1,3 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Map iPad Custom Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
+    #map { height: 100vh; width: 100%; }
+
+    /* iPadの長押しによる標準メニューや選択を抑制 */
+    * {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    /* 凡例（地図右下）のスタイル */
+    .map-legend {
+      background: white;
+      padding: 12px;
+      margin: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      font-size: 13px;
+      line-height: 20px;
+    }
+    .map-legend h4 { margin: 0 0 6px 0; font-size: 14px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+    .legend-color { width: 16px; height: 16px; margin-right: 8px; border: 1px solid #333; border-radius: 3px; }
+
+    /* カスタムドロップダウンメニューのスタイル */
+    #custom-dropdown {
+      display: none;
+      position: absolute;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      padding: 6px 0;
+      min-width: 140px;
+    }
+    .dropdown-item {
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+    .dropdown-item:active { background-color: #f0f0f0; }
+    .dropdown-item .color-badge { width: 12px; height: 12px; margin-right: 8px; border: 1px solid #333; border-radius: 2px; }
+    .dropdown-item.delete-item { color: #dc2626; font-weight: bold; border-top: 1px solid #eee; margin-top: 4px; }
+  </style>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&v=weekly&callback=initMap" async defer></script>
+  
+  <script>
 // --- 状態定義 ---
 const STATUS_LIST = [
   { color: 'white',        label: '未訪問',       code: '#ffffff' },
@@ -221,3 +277,21 @@ function loadMarkersFromStorage() {
     }
   }
 }
+</script>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div id="custom-dropdown">
+    <div class="dropdown-item" onclick="selectDropdownStatus(0)"><div class="color-badge" style="background:#ffffff;"></div>未訪問</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(1)"><div class="color-badge" style="background:#3b82f6;"></div>訪問済み</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(2)"><div class="color-badge" style="background:#eab308;"></div>留守</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(3)"><div class="color-badge" style="background:#f97316;"></div>留守２回以上</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(4)"><div class="color-badge" style="background:#ef4444;"></div>訪問拒否</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(5)"><div class="color-badge" style="background:#6b7280;"></div>空家</div>
+    <div class="dropdown-item delete-item" onclick="deleteCurrentMarker()">アイコンを削除</div>
+  </div>
+
+</body>
+</html>
