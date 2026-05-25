@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Google Map iPad Custom Tool (Multi-Mode)</title>
+  <title>Google Map iPad Custom Tool (Advanced UI & Drag)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
@@ -14,24 +14,50 @@
       user-select: none;
     }
 
-    /* 右上のモード選択UIのスタイル */
-    .map-mode-selector {
+    /* 右上のコントロールパネル（モード切替・検索） */
+    .map-control-panel {
       background: white;
-      padding: 10px 14px;
+      padding: 6px;
       margin: 10px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      font-size: 14px;
-      font-weight: bold;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
-    .map-mode-selector label {
-      margin-right: 12px;
-      cursor: pointer;
-      display: inline-flex;
+    .mode-buttons {
+      display: flex;
+      gap: 6px;
+    }
+    /* タッチしやすいサイズ（最小44px）のボタン */
+    .control-btn {
+      width: 50px;
+      height: 50px;
+      background: #f3f4f6;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 22px;
+      display: flex;
       align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      padding: 0;
     }
-    .map-mode-selector input[type="radio"] {
-      margin-right: 4px;
+    /* 選択中のモードのハイライト表示 */
+    .control-btn.active {
+      background: #3b82f6;
+      border-color: #2563eb;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+    }
+    /* 住所検索ボタン用のスタイル */
+    .control-btn.search-btn {
+      width: 106px; /* 横幅を広げて2つのボタンの下に配置 */
+      background: #ffffff;
+      border-color: #3b82f6;
+    }
+    .control-btn.search-btn:active {
+      background: #eff6ff;
     }
 
     /* 凡例（地図右下）のスタイル */
@@ -70,8 +96,8 @@
     .dropdown-item .color-badge { width: 12px; height: 12px; margin-right: 8px; border: 1px solid #333; border-radius: 2px; }
     .dropdown-item.delete-item { color: #dc2626; font-weight: bold; border-top: 1px solid #eee; margin-top: 4px; }
   </style>
-  
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&callback=initMap" async defer></script>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&callback=initMap" async defer></script> 
   
   <script>
     // --- 状態定義 ---
@@ -90,13 +116,14 @@
       building: "M4 21V3h10v4h6v14H4z M6 5h2v2H6V5z M10 5h2v2h-2V5z M6 9h2v2H6V9z M10 9h2v2h-2V9z M6 13h2v2H6v-2z M10 13h2v2h-2v-2z M6 17h2v2H6v-2z M10 17h2v2h-2v-2z M15 9h3v2h-3V9z M15 13h3v2h-3v-2z M15 17h3v2h-3v-2z"
     };
 
-    const STORAGE_KEY = 'ipad_map_markers_v2'; 
+    const STORAGE_KEY = 'ipad_map_markers_v3'; 
 
     let map;
     let currentActiveMarker = null;
     let longPressTimer;
     let isLongPress = false;
     let startX, startY;
+    let currentMode = 'house'; // デフォルトは家モード
 
     let markersDataList = []; 
     let AdvancedMarkerElementClass; 
@@ -115,9 +142,9 @@
         disableDoubleClickZoom: true
       });
 
-      // 1. 各種UIとデータの初期化
+      // 1. 各種UIとストレージデータの復元
       loadMarkersFromStorage();
-      createModeSelector();
+      createControlPanel();
       createLegend();
 
       // 地図タップ時のイベント
@@ -125,8 +152,7 @@
         if (closeDropdown()) return;
         
         const newId = Date.now().toString();
-        const activeMode = getSelectedMode(); // 現在の選択モード（house または building）を取得
-        createCustomMarker(e.latLng, 0, newId, activeMode);
+        createCustomMarker(e.latLng, 0, newId, currentMode);
         saveMarkersToStorage(); 
       });
 
@@ -136,7 +162,7 @@
         }
       });
 
-      // 2. 現在地の取得処理
+      // 2. 起動時は現在地のみ取得（住所検索ダイアログの自動表示は廃止）
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
@@ -146,69 +172,82 @@
             };
             map.setCenter(pos);
             map.setZoom(16);
-            handleAddressPrompt();
-          },
-          () => { handleAddressPrompt(); }
+          }
         );
-      } else {
-        handleAddressPrompt();
       }
     }
 
-    // 住所検索ダイアログ
+    // 住所検索ボタンをクリックしたときに呼び出される関数
     function handleAddressPrompt() {
-      setTimeout(() => {
-        const address = prompt("特定の住所に移動したい場合は入力してください\n（現在の位置でよい場合は空欄かキャンセルを選択してください）:");
-        if (address) {
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ address: address }, (results, status) => {
-            if (status === "OK") {
-              map.setCenter(results[0].geometry.location);
-              map.setZoom(18);
-            } else {
-              alert("住所の検索に失敗しました: " + status);
-            }
-          });
-        }
-      }, 500);
-    }
-
-    // 右上のモード選択UIを生成する関数
-    function createModeSelector() {
-      const modeDiv = document.createElement("div");
-      modeDiv.className = "map-mode-selector";
-      modeDiv.innerHTML = `
-        <form id="mode-form">
-          <label><input type="radio" name="map-mode" value="house" checked>家モード</label>
-          <label><input type="radio" name="map-mode" value="building">ビルモード</label>
-        </form>
-      `;
-      map.controls[google.maps.ControlPosition.RIGHT_TOP].push(modeDiv);
-    }
-
-    // 現在選択されているモードを取得する関数
-    function getSelectedMode() {
-      const form = document.getElementById("mode-form");
-      if (form) {
-        return form.elements["map-mode"].value;
+      const address = prompt("表示したい住所を入力してください:");
+      if (address) {
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: address }, (results, status) => {
+          if (status === "OK") {
+            map.setCenter(results[0].geometry.location);
+            map.setZoom(18);
+          } else {
+            alert("住所の検索に失敗しました: " + status);
+          }
+        });
       }
-      return "house";
     }
 
-    // マーカーを生成する共通関数（type引数を追加）
+    // 右上のコントロールパネル（モード選択アイコンと検索アイコン）を生成
+    function createControlPanel() {
+      const panelDiv = document.createElement("div");
+      panelDiv.className = "map-control-panel";
+      panelDiv.innerHTML = `
+        <div class="mode-buttons">
+          <button type="button" id="btn-house" class="control-btn active" onclick="setMapMode('house')">🏠</button>
+          <button type="button" id="btn-building" class="control-btn" onclick="setMapMode('building')">🏢</button>
+        </div>
+        <button type="button" class="control-btn search-btn" onclick="handleAddressPrompt()">🔍</button>
+      `;
+      map.controls[google.maps.ControlPosition.RIGHT_TOP].push(panelDiv);
+    }
+
+    // モードを切り替える関数（UIのハイライトを制御）
+    function setMapMode(mode) {
+      currentMode = mode;
+      document.getElementById("btn-house").classList.remove("active");
+      document.getElementById("btn-building").classList.remove("active");
+      
+      if (mode === 'house') {
+        document.getElementById("btn-house").classList.add("active");
+      } else {
+        document.getElementById("btn-building").classList.add("active");
+      }
+    }
+
+    // マーカーを生成する関数
     function createCustomMarker(latLng, statusIndex, id, type) {
       const markerElement = document.createElement("div");
       markerElement.style.cursor = "pointer";
       markerElement.dataset.statusIndex = statusIndex.toString();
       markerElement.dataset.id = id; 
-      markerElement.dataset.type = type; // house または building をDOMに記録
+      markerElement.dataset.type = type; 
       
       updateMarkerSVG(markerElement, statusIndex, type);
 
+      // gmpDraggable: true でドラッグアンドドロップを有効化
       const marker = new AdvancedMarkerElementClass({
         position: latLng,
         map: map,
-        content: markerElement
+        content: markerElement,
+        gmpDraggable: true 
+      });
+
+      // ドラッグが終了したとき（位置調整時）のイベント
+      marker.addListener("dragend", (event) => {
+        const newLatLng = event.latLng;
+        const target = markersDataList.find(item => item.id === id);
+        if (target) {
+          // 管理リスト内の座標を書き換えて保存
+          target.lat = newLatLng.lat();
+          target.lng = newLatLng.lng();
+          saveMarkersToStorage();
+        }
       });
 
       markersDataList.push({
@@ -240,7 +279,7 @@
 
         let currentIndex = parseInt(markerElement.dataset.statusIndex, 10);
         let nextIndex = (currentIndex + 1) % STATUS_LIST.length;
-        const currentType = markerElement.dataset.type; // 画面上の選択モードではなく、このマーカーのタイプを使用
+        const currentType = markerElement.dataset.type; 
         
         markerElement.dataset.statusIndex = nextIndex;
         updateMarkerSVG(markerElement, nextIndex, currentType);
@@ -251,10 +290,10 @@
       markerElement.addEventListener("contextmenu", (e) => e.preventDefault());
     }
 
-    // SVGの更新（typeに応じたパスの切り替え）
+    // SVGの更新
     function updateMarkerSVG(element, index, type) {
       const status = STATUS_LIST[index];
-      const path = SVG_PATHS[type] || SVG_PATHS.house; // 万が一不正なタイプがあれば家にフォールバック
+      const path = SVG_PATHS[type] || SVG_PATHS.house; 
       element.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36">
           <path d="${path}" fill="${status.code}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
@@ -327,47 +366,4 @@
 
     // --- localStorageの制御関数群 ---
     function saveMarkersToStorage() {
-      const dataToSave = markersDataList.map(item => ({
-        id: item.id,
-        lat: item.lat,
-        lng: item.lng,
-        statusIndex: item.statusIndex,
-        type: item.type // タイプ情報（house / building）もあわせて保存
-      }));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-    }
-
-    function loadMarkersFromStorage() {
-      const savedData = localStorage.getItem(STORAGE_KEY);
-      if (savedData) {
-        try {
-          const parsedData = JSON.parse(savedData);
-          parsedData.forEach(data => {
-            const latLng = new google.maps.LatLng(data.lat, data.lng);
-            // 過去データにtypeがない場合は'house'として扱う
-            const type = data.type || 'house';
-            createCustomMarker(latLng, data.statusIndex, data.id, type);
-          });
-        } catch (e) {
-          console.error("保存データの読み込みに失敗しました", e);
-        }
-      }
-    }
-  </script>
-</head>
-<body>
-
-  <div id="map"></div>
-
-  <div id="custom-dropdown">
-    <div class="dropdown-item" onclick="selectDropdownStatus(0)"><div class="color-badge" style="background:#ffffff;"></div>未訪問</div>
-    <div class="dropdown-item" onclick="selectDropdownStatus(1)"><div class="color-badge" style="background:#3b82f6;"></div>訪問済み</div>
-    <div class="dropdown-item" onclick="selectDropdownStatus(2)"><div class="color-badge" style="background:#eab308;"></div>留守</div>
-    <div class="dropdown-item" onclick="selectDropdownStatus(3)"><div class="color-badge" style="background:#f97316;"></div>留守２回以上</div>
-    <div class="dropdown-item" onclick="selectDropdownStatus(4)"><div class="color-badge" style="background:#ef4444;"></div>訪問拒否</div>
-    <div class="dropdown-item" onclick="selectDropdownStatus(5)"><div class="color-badge" style="background:#6b7280;"></div>空家</div>
-    <div class="dropdown-item delete-item" onclick="deleteCurrentMarker()">アイコンを削除</div>
-  </div>
-
-</body>
-</html>
+      const dataToSave =
