@@ -1,868 +1,494 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>訪問管理マップツール</title>
-<style>
-  :root {
-    --panel-bg: rgba(255, 255, 255, 0.95);
-    --shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  }
+  <title>Google Map iPad Custom Tool (Advanced Room Manager)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
+    #map { height: 100vh; width: 100%; }
 
-  * {
-    box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent;
-  }
+    /* iPadの長押しメニュー抑制 */
+    * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
-    /* iOS標準の選択・コールアウトメニューを抑制 */
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-  }
+    /* UIパネル */
+    .map-control-panel {
+      background: white; padding: 6px; margin: 10px; border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 8px;
+    }
+    .mode-buttons { display: flex; gap: 6px; }
+    .control-btn {
+      width: 50px; height: 50px; background: #f3f4f6; border: 2px solid #e5e7eb;
+      border-radius: 10px; font-size: 22px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; transition: all 0.2s ease; padding: 0;
+    }
+    .control-btn.active { background: #3b82f6; border-color: #2563eb; }
+    .control-btn.search-btn { width: 106px; background: #ffffff; border-color: #3b82f6; }
 
-  #map {
-    width: 100vw;
-    height: 100vh;
-  }
+    /* 凡例 */
+    .map-legend {
+      background: white; padding: 12px; margin: 10px; border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-size: 13px; line-height: 20px;
+    }
+    .map-legend h4 { margin: 0 0 6px 0; font-size: 14px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+    .legend-color { width: 16px; height: 16px; margin-right: 8px; border: 1px solid #333; border-radius: 3px; }
 
-  /* ==== コントロールパネル（右上）==== */
-  #control-panel {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--panel-bg);
-    padding: 8px;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-  }
+    /* ドロップダウンメニュー */
+    #custom-dropdown {
+      display: none; position: absolute; background: white; border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; padding: 6px 0; min-width: 140px;
+    }
+    .dropdown-item { padding: 10px 16px; font-size: 14px; cursor: pointer; display: flex; align-items: center; }
+    .dropdown-item:active { background-color: #f0f0f0; }
+    .dropdown-item .color-badge { width: 12px; height: 12px; margin-right: 8px; border: 1px solid #333; border-radius: 2px; }
+    .dropdown-item.delete-item { color: #dc2626; font-weight: bold; border-top: 1px solid #eee; margin-top: 4px; }
 
-  .mode-group {
-    display: flex;
-    gap: 8px;
-  }
+    /* --- 部屋管理モーダル --- */
+    #room-modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); z-index: 20000; align-items: center; justify-content: center;
+    }
+    .modal-content {
+      background: white; width: 95%; max-width: 650px; height: 85%;
+      border-radius: 16px; display: flex; flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow: hidden;
+    }
+    .modal-header {
+      padding: 16px; background: #f3f4f6; border-bottom: 1px solid #e5e7eb;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-header h3 { margin: 0; font-size: 18px; }
+    .close-modal-btn { background: none; border: none; font-size: 24px; cursor: pointer; padding: 4px 8px; }
+    
+    /* ツールバーを拡張（ボタンが増えるため flex-wrap で折り返し対応） */
+    .modal-toolbar {
+      padding: 12px; display: flex; flex-wrap: wrap; gap: 8px;
+      background: #fafafa; border-bottom: 1px solid #e5e7eb;
+    }
+    .toolbar-btn {
+      flex: 1 1 calc(33% - 8px); min-width: 120px; padding: 10px; font-size: 13px;
+      font-weight: bold; border: 1px solid #d1d5db; border-radius: 8px;
+      background: white; cursor: pointer; text-align: center;
+    }
+    .toolbar-btn:active { background: #e5e7eb; }
+    .btn-danger { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+    .btn-danger:active { background: #fee2e2; }
 
-  .ctrl-btn {
-    width: 50px;
-    height: 50px;
-    border: 2px solid #d1d5db;
-    border-radius: 10px;
-    background: #ffffff;
-    font-size: 24px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
+    .modal-body {
+      flex: 1; padding: 16px; overflow: auto; display: flex;
+      align-items: flex-start; justify-content: center;
+    }
+    .room-grid-table { border-collapse: separate; border-spacing: 6px; }
+    .room-cell {
+      width: 70px; height: 45px; border: 1.5px solid #1a1a1a; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+  </style>
 
-  .ctrl-btn.active {
-    background: #3b82f6;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
-  }
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&callback=initMap" async defer></script>
+  
+  <script>
+    const STATUS_LIST = [
+      { color: 'white',        label: '未訪問',       code: '#ffffff' },
+      { color: 'blue',         label: '訪問済み',     code: '#3b82f6' },
+      { color: 'yellow',       label: '留守',         code: '#eab308' },
+      { color: 'orange',       label: '留守２回以上', code: '#f97316' },
+      { color: 'red',          label: '訪問拒否',     code: '#ef4444' },
+      { color: 'gray',         label: '空家',         code: '#6b7280' }
+    ];
 
-  .ctrl-btn:active {
-    transform: scale(0.95);
-  }
+    const SVG_PATHS = {
+      house: "M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z",
+      building: "M4 21V3h10v4h6v14H4z M6 5h2v2H6V5z M10 5h2v2h-2V5z M6 9h2v2H6V9z M10 9h2v2h-2V9z M6 13h2v2H6v-2z M10 13h2v2h-2v-2z M6 17h2v2H6v-2z M10 17h2v2h-2v-2z M15 9h3v2h-3V9z M15 13h3v2h-3v-2z M15 17h3v2h-3v-2z"
+    };
 
-  /* radioは非表示。ラベルボタンで制御 */
-  .mode-group input[type="radio"] {
-    display: none;
-  }
+    // スキーマ拡張のためストレージキーを更新
+    const STORAGE_KEY = 'ipad_map_markers_v5'; 
 
-  /* ==== 凡例（右下）==== */
-  #legend {
-    position: absolute;
-    bottom: 20px;
-    right: 12px;
-    z-index: 20;
-    background: var(--panel-bg);
-    padding: 10px 12px;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    font-size: 13px;
-  }
+    let map, AdvancedMarkerElementClass;
+    let currentActiveMarker = null; 
+    let currentActiveRoomNo = null;  
+    let currentEditingBuildingId = null; 
+    let longPressTimer;
+    let isLongPress = false;
+    let startX, startY;
+    let currentMode = 'house'; 
+    let markersDataList = []; 
 
-  #legend .legend-title {
-    font-weight: bold;
-    margin-bottom: 6px;
-    font-size: 12px;
-    color: #374151;
-  }
+    async function initMap() {
+      const { Map } = await google.maps.importLibrary("maps");
+      const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+      AdvancedMarkerElementClass = AdvancedMarkerElement;
 
-  .legend-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 3px 0;
-  }
+      map = new Map(document.getElementById("map"), {
+        center: { lat: 35.681236, lng: 139.767125 },
+        zoom: 14, mapId: "DEMO_MAP_ID", disableDoubleClickZoom: true
+      });
 
-  .legend-swatch {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
-    border: 1px solid #9ca3af;
-    flex: 0 0 auto;
-  }
+      loadMarkersFromStorage();
+      createControlPanel();
+      createLegend();
 
-  /* ==== マーカー ==== */
-  .marker-wrap {
-    width: 44px;
-    height: 44px;
-    transform: translateY(-6px);
-    cursor: pointer;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-    touch-action: none;
-  }
-  .marker-wrap svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.4));
-    pointer-events: none;
-  }
+      map.addListener("click", (e) => {
+        if (closeDropdown()) return;
+        const newId = Date.now().toString();
+        createCustomMarker(e.latLng, 0, newId, currentMode);
+        saveMarkersToStorage(); 
+      });
 
-  /* ==== カスタムコンテキストメニュー ==== */
-  #context-menu {
-    position: fixed;
-    z-index: 40;
-    min-width: 160px;
-    background: #ffffff;
-    border-radius: 10px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-    padding: 6px;
-    display: none;
-  }
+      window.addEventListener('pointerdown', (e) => {
+        if (!e.target.closest('#custom-dropdown')) closeDropdown();
+      });
 
-  .cm-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 15px;
-    cursor: pointer;
-  }
-  .cm-item:active { background: #f3f4f6; }
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((p) => {
+          map.setCenter({ lat: p.coords.latitude, lng: p.coords.longitude });
+          map.setZoom(16);
+        });
+      }
+    }
 
-  .cm-swatch {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 1px solid #9ca3af;
-    flex: 0 0 auto;
-  }
+function handleAddressPrompt() {
+      const address = prompt("表示したい住所を入力してください:");
+      if (address) {
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: address }, (results, status) => {
+          if (status === "OK") { map.setCenter(results[0].geometry.location); map.setZoom(18); }
+        });
+      }
+    }
 
-  .cm-delete {
-    color: #ef4444;
-    font-weight: bold;
-    border-top: 1px solid #e5e7eb;
-    margin-top: 4px;
-  }
-
-  /* ==== アパート部屋管理モーダル ==== */
-  #room-modal-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    background: rgba(0, 0, 0, 0.45);
-    display: none;
-    align-items: center;
-    justify-content: center;
-  }
-
-  #room-modal {
-    background: #ffffff;
-    width: min(92vw, 640px);
-    max-height: 88vh;
-    border-radius: 16px;
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .modal-header {
-    padding: 12px 14px;
-    border-bottom: 1px solid #e5e7eb;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-  .modal-header .title {
-    font-weight: bold;
-    font-size: 16px;
-    flex: 1 1 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .tool-btn {
-    border: 1px solid #d1d5db;
-    background: #f9fafb;
-    border-radius: 8px;
-    padding: 8px 10px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .tool-btn:active { background: #e5e7eb; }
-  .tool-btn.danger { color: #ef4444; border-color: #fca5a5; }
-
-  #modal-close {
-    border: none;
-    background: transparent;
-    font-size: 22px;
-    cursor: pointer;
-    color: #6b7280;
-    padding: 0 4px;
-  }
-
-  .modal-body {
-    padding: 14px;
-    overflow: auto;
-  }
-
-  table.room-grid {
-    border-collapse: separate;
-    border-spacing: 6px;
-    margin: 0 auto;
-  }
-  table.room-grid td {
-    width: 60px;
-    height: 44px;
-    text-align: center;
-    vertical-align: middle;
-    border-radius: 8px;
-    border: 1px solid #9ca3af;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-    touch-action: manipulation;
-  }
-  table.room-grid td.floor-label {
-    border: none;
-    background: transparent !important;
-    color: #6b7280;
-    font-weight: normal;
-    font-size: 12px;
-    cursor: default;
-    width: 40px;
-  }
-</style>
-</head>
-<body>
-  <div id="map"></div>
-
-  <!-- コントロールパネル（右上） -->
-  <div id="control-panel">
-    <div class="mode-group">
-      <input type="radio" name="mode" id="mode-house" value="house" checked />
-      <label class="ctrl-btn active" id="btn-house" for="mode-house" title="家モード">🏠</label>
-      <input type="radio" name="mode" id="mode-building" value="building" />
-      <label class="ctrl-btn" id="btn-building" for="mode-building" title="ビルモード">🏢</label>
-    </div>
-    <button class="ctrl-btn" id="btn-search" title="住所検索" style="width:108px;">🔍</button>
-  </div>
-
-  <!-- 凡例（右下） -->
-  <div id="legend">
-    <div class="legend-title">ステータス凡例</div>
-    <div id="legend-list"></div>
-  </div>
-
-  <!-- カスタムコンテキストメニュー -->
-  <div id="context-menu"></div>
-
-  <!-- 部屋管理モーダル -->
-  <div id="room-modal-overlay">
-    <div id="room-modal">
-      <div class="modal-header">
-        <div class="title">
-          <span>アパート部屋管理</span>
-          <button id="modal-close" aria-label="閉じる">✖</button>
+    function createControlPanel() {
+      const panelDiv = document.createElement("div");
+      panelDiv.className = "map-control-panel";
+      panelDiv.innerHTML = `
+        <div class="mode-buttons">
+          <button type="button" id="btn-house" class="control-btn active" onclick="setMapMode('house')">🏠</button>
+          <button type="button" id="btn-building" class="control-btn" onclick="setMapMode('building')">🏢</button>
         </div>
-        <button class="tool-btn" data-action="addFloor">＋ 行追加 (上階)</button>
-        <button class="tool-btn" data-action="addRoom">＋ 列追加 (部屋)</button>
-        <button class="tool-btn" data-action="removeFloor">－ 行削除</button>
-        <button class="tool-btn" data-action="removeRoom">－ 列削除</button>
-        <button class="tool-btn danger" data-action="hide4">✖ 「4」を削除</button>
-      </div>
-      <div class="modal-body">
-        <table class="room-grid" id="room-grid"></table>
-      </div>
-    </div>
-  </div>
-
-<script>
-/* ===========================================================================
-   訪問管理マップツール (iPad向け Vanilla JS)
-   仕様書準拠 : Google Maps AdvancedMarkerElement + Geocoding + localStorage
-   =========================================================================== */
-
-/* ---- 2. ステータス定義 ---------------------------------------------------- */
-const STATUSES = [
-  { label: "未訪問",       color: "#ffffff", font: "#1a1a1a" },
-  { label: "訪問済み",     color: "#3b82f6", font: "#ffffff" },
-  { label: "留守",         color: "#eab308", font: "#1a1a1a" },
-  { label: "留守２回以上", color: "#f97316", font: "#ffffff" },
-  { label: "訪問拒否",     color: "#ef4444", font: "#ffffff" },
-  { label: "空家",         color: "#6b7280", font: "#ffffff" },
-];
-const STATUS_COUNT = STATUSES.length;
-const BUILDING_COLOR = "#9ca3af"; // ビルは常にこの色
-
-/* ---- 定数 ---------------------------------------------------------------- */
-const STORAGE_KEY = "ipad_map_markers_v5";
-const LONG_PRESS_MS = 600;
-const MOVE_THRESHOLD = 10; // px
-const TOKYO_STATION = { lat: 35.681236, lng: 139.767125 };
-
-/* ---- グローバル状態 ------------------------------------------------------- */
-let map;
-let AdvancedMarkerElement;
-let geocoder;
-let currentMode = "house";       // "house" | "building"
-let markersData = [];            // 保存用データ配列
-let markerObjects = {};          // id -> { data, gmarker, contentEl }
-let longPressTimer = null;
-let longPressFired = false;
-let pointerStart = { x: 0, y: 0 };
-let suppressNextMapClick = false; // マーカー操作直後のマップクリック誤爆防止
-let activeBuildingId = null;      // モーダルで開いているビルのID
-
-/* ===========================================================================
-   SVGアイコン生成
-   =========================================================================== */
-function houseSVG(color) {
-  const stroke = "#1a1a1a";
-  return `
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2.2 1.5 11h3v10.5h6V15h3v6.5h6V11h3z"
-            fill="${color}" stroke="${stroke}" stroke-width="1"
-            stroke-linejoin="round"/>
-    </svg>`;
-}
-function buildingSVG() {
-  const stroke = "#1a1a1a";
-  return `
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 2h11v20H4zM15 8h5v14h-5z"
-            fill="${BUILDING_COLOR}" stroke="${stroke}" stroke-width="1"
-            stroke-linejoin="round"/>
-      <g fill="${stroke}">
-        <rect x="6"  y="4"  width="2" height="2"/>
-        <rect x="9"  y="4"  width="2" height="2"/>
-        <rect x="6"  y="8"  width="2" height="2"/>
-        <rect x="9"  y="8"  width="2" height="2"/>
-        <rect x="6"  y="12" width="2" height="2"/>
-        <rect x="9"  y="12" width="2" height="2"/>
-        <rect x="6"  y="16" width="2" height="2"/>
-        <rect x="9"  y="16" width="2" height="2"/>
-        <rect x="16.5" y="11" width="1.6" height="1.6"/>
-        <rect x="16.5" y="15" width="1.6" height="1.6"/>
-      </g>
-    </svg>`;
-}
-
-/* ===========================================================================
-   localStorage 永続化
-   =========================================================================== */
-function saveData() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(markersData));
-  } catch (e) {
-    console.error("保存失敗:", e);
-  }
-}
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.error("読込失敗:", e);
-    return [];
-  }
-}
-
-/* ===========================================================================
-   凡例の描画
-   =========================================================================== */
-function renderLegend() {
-  const list = document.getElementById("legend-list");
-  list.innerHTML = STATUSES.map(s =>
-    `<div class="legend-row">
-       <span class="legend-swatch" style="background:${s.color}"></span>
-       <span>${s.label}</span>
-     </div>`
-  ).join("");
-}
-
-/* ===========================================================================
-   Google Maps 初期化 (コールバック)
-   =========================================================================== */
-async function initMap() {
-  const { Map } = await google.maps.importLibrary("maps");
-  const markerLib = await google.maps.importLibrary("marker");
-  AdvancedMarkerElement = markerLib.AdvancedMarkerElement;
-  await google.maps.importLibrary("geocoding");
-  geocoder = new google.maps.Geocoder();
-
-  map = new Map(document.getElementById("map"), {
-    center: TOKYO_STATION,
-    zoom: 16,
-    disableDoubleClickZoom: true,
-    disableDefaultUI: true,
-    zoomControl: true,
-    gestureHandling: "greedy",
-    clickableIcons: false,
-    mapId: "DEMO_MAP_ID", // AdvancedMarkerElement利用に必要
-  });
-
-  // 何もない場所タップでマーカー追加
-  map.addListener("click", (e) => {
-    if (suppressNextMapClick) { suppressNextMapClick = false; return; }
-    addMarker(e.latLng.lat(), e.latLng.lng(), currentMode);
-  });
-  // 地図タップでコンテキストメニューを閉じる
-  map.addListener("click", hideContextMenu);
-  map.addListener("dragstart", hideContextMenu);
-
-  // 保存データの復元
-  markersData = loadData();
-  markersData.forEach(createMarkerObject);
-
-  // 現在地取得 → 中心へ
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        map.setZoom(16);
-      },
-      () => { /* 取得不可 → 東京駅のまま */ },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
-  }
-
-  renderLegend();
-}
-window.initMap = initMap;
-
-/* ===========================================================================
-   マーカー生成
-   =========================================================================== */
-function defaultRooms() {
-  return {
-    maxFloor: 1,
-    maxRoomNum: 1,
-    states: { "101": 0 },
-    hiddenRooms: [],
-  };
-}
-
-function addMarker(lat, lng, type) {
-  const data = {
-    id: String(Date.now()),
-    lat, lng,
-    statusIndex: 0,
-    type,
-    rooms: type === "building" ? defaultRooms() : null,
-  };
-  markersData.push(data);
-  createMarkerObject(data);
-  saveData();
-}
-
-function createMarkerObject(data) {
-  const wrap = document.createElement("div");
-  wrap.className = "marker-wrap";
-  wrap.innerHTML = data.type === "house"
-    ? houseSVG(STATUSES[data.statusIndex].color)
-    : buildingSVG();
-
-  const gmarker = new AdvancedMarkerElement({
-    map,
-    position: { lat: data.lat, lng: data.lng },
-    content: wrap,
-    gmpDraggable: true,
-  });
-
-  // ドラッグ完了で座標保存
-  gmarker.addListener("dragstart", () => {
-    clearLongPress();
-    longPressFired = true; // ドラッグ中は短押し扱いしない
-  });
-  gmarker.addListener("dragend", () => {
-    const p = gmarker.position;
-    data.lat = (typeof p.lat === "function") ? p.lat() : p.lat;
-    data.lng = (typeof p.lng === "function") ? p.lng() : p.lng;
-    saveData();
-    suppressNextMapClick = true;
-  });
-
-  attachPointerHandlers(wrap, {
-    onTap: () => handleMarkerTap(data),
-    onLongPress: (x, y) => handleMarkerLongPress(data, x, y),
-  });
-
-  markerObjects[data.id] = { data, gmarker, contentEl: wrap };
-}
-
-function refreshMarkerVisual(data) {
-  const obj = markerObjects[data.id];
-  if (!obj) return;
-  obj.contentEl.innerHTML = data.type === "house"
-    ? houseSVG(STATUSES[data.statusIndex].color)
-    : buildingSVG();
-}
-
-function removeMarker(id) {
-  const obj = markerObjects[id];
-  if (obj) {
-    obj.gmarker.map = null;
-    delete markerObjects[id];
-  }
-  markersData = markersData.filter(m => m.id !== id);
-  saveData();
-}
-
-/* ===========================================================================
-   7. タッチイベント判定 (PointerEvents) — タップ / 長押し の分離
-   =========================================================================== */
-function attachPointerHandlers(el, { onTap, onLongPress }) {
-  el.addEventListener("pointerdown", (e) => {
-    // マーカー操作開始 → マップクリック抑制
-    pointerStart = { x: e.clientX, y: e.clientY };
-    longPressFired = false;
-    clearLongPress();
-    longPressTimer = setTimeout(() => {
-      longPressFired = true;
-      onLongPress(e.clientX, e.clientY);
-    }, LONG_PRESS_MS);
-  });
-
-  el.addEventListener("pointermove", (e) => {
-    const dx = Math.abs(e.clientX - pointerStart.x);
-    const dy = Math.abs(e.clientY - pointerStart.y);
-    if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) {
-      clearLongPress();
+        <button type="button" class="control-btn search-btn" onclick="handleAddressPrompt()">🔍</button>
+      `;
+      map.controls[google.maps.ControlPosition.RIGHT_TOP].push(panelDiv);
     }
-  });
 
-  el.addEventListener("pointerup", (e) => {
-    clearLongPress();
-    suppressNextMapClick = true;
-    setTimeout(() => { suppressNextMapClick = false; }, 350);
-    if (longPressFired) return; // 長押し済み → 短押しキャンセル
-    const dx = Math.abs(e.clientX - pointerStart.x);
-    const dy = Math.abs(e.clientY - pointerStart.y);
-    if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) return; // 移動 → キャンセル
-    onTap();
-  });
+    function setMapMode(mode) {
+      currentMode = mode;
+      document.getElementById("btn-house").classList.remove("active");
+      document.getElementById("btn-building").classList.remove("active");
+      document.getElementById(mode === 'house' ? "btn-house" : "btn-building").classList.add("active");
+    }
 
-  el.addEventListener("pointercancel", () => {
-    clearLongPress();
-  });
+    function createCustomMarker(latLng, statusIndex, id, type, savedRoomsData = null) {
+      const markerElement = document.createElement("div");
+      markerElement.style.cursor = "pointer";
+      markerElement.dataset.statusIndex = statusIndex.toString();
+      markerElement.dataset.id = id; 
+      markerElement.dataset.type = type; 
+      
+      updateMarkerSVG(markerElement, statusIndex, type);
 
-  // iOS標準メニュー抑制
-  el.addEventListener("contextmenu", (e) => e.preventDefault());
-}
-
-function clearLongPress() {
-  if (longPressTimer) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-  }
-}
-
-/* ===========================================================================
-   5. マーカー固有ロジック
-   =========================================================================== */
-function handleMarkerTap(data) {
-  if (data.type === "house") {
-    data.statusIndex = (data.statusIndex + 1) % STATUS_COUNT;
-    refreshMarkerVisual(data);
-    saveData();
-  } else {
-    openRoomModal(data);
-  }
-}
-
-function handleMarkerLongPress(data, x, y) {
-  const items = [];
-  if (data.type === "house") {
-    STATUSES.forEach((s, i) => {
-      items.push({
-        swatch: s.color,
-        label: s.label,
-        onClick: () => {
-          data.statusIndex = i;
-          refreshMarkerVisual(data);
-          saveData();
-        },
+      const marker = new AdvancedMarkerElementClass({
+        position: latLng, map: map, content: markerElement, gmpDraggable: true 
       });
-    });
-  }
-  // 家・ビル共通で削除ボタン
-  items.push({
-    delete: true,
-    label: "アイコンを削除",
-    onClick: () => removeMarker(data.id),
-  });
-  showContextMenu(x, y, items);
-}
 
-/* ===========================================================================
-   カスタムコンテキストメニュー
-   =========================================================================== */
-function showContextMenu(x, y, items) {
-  const menu = document.getElementById("context-menu");
-  menu.innerHTML = "";
-  items.forEach(it => {
-    const div = document.createElement("div");
-    div.className = "cm-item" + (it.delete ? " cm-delete" : "");
-    if (it.swatch) {
-      div.innerHTML = `<span class="cm-swatch" style="background:${it.swatch}"></span><span>${it.label}</span>`;
-    } else {
-      div.innerHTML = `<span>${it.label}</span>`;
-    }
-    div.addEventListener("pointerup", (e) => {
-      e.stopPropagation();
-      hideContextMenu();
-      it.onClick();
-    });
-    menu.appendChild(div);
-  });
-
-  // 一旦表示してサイズ計測 → 画面内に収める
-  menu.style.display = "block";
-  menu.style.left = "0px";
-  menu.style.top = "0px";
-  const rect = menu.getBoundingClientRect();
-  let left = x;
-  let top = y;
-  if (left + rect.width > window.innerWidth - 8) left = window.innerWidth - rect.width - 8;
-  if (top + rect.height > window.innerHeight - 8) top = window.innerHeight - rect.height - 8;
-  if (left < 8) left = 8;
-  if (top < 8) top = 8;
-  menu.style.left = left + "px";
-  menu.style.top = top + "px";
-}
-
-function hideContextMenu() {
-  const menu = document.getElementById("context-menu");
-  menu.style.display = "none";
-}
-
-// メニュー外タップで閉じる
-document.addEventListener("pointerdown", (e) => {
-  const menu = document.getElementById("context-menu");
-  if (menu.style.display === "block" && !menu.contains(e.target)) {
-    hideContextMenu();
-  }
-});
-document.addEventListener("contextmenu", (e) => e.preventDefault());
-
-/* ===========================================================================
-   6. アパート部屋管理モーダル
-   =========================================================================== */
-function openRoomModal(data) {
-  activeBuildingId = data.id;
-  if (!data.rooms) data.rooms = defaultRooms();
-  document.getElementById("room-modal-overlay").style.display = "flex";
-  renderRoomGrid();
-}
-
-function closeRoomModal() {
-  document.getElementById("room-modal-overlay").style.display = "none";
-  activeBuildingId = null;
-}
-
-function getActiveBuilding() {
-  return markersData.find(m => m.id === activeBuildingId);
-}
-
-function renderRoomGrid() {
-  const b = getActiveBuilding();
-  if (!b) return;
-  const r = b.rooms;
-  const grid = document.getElementById("room-grid");
-  grid.innerHTML = "";
-
-  // ボトムアップ: 最上階(maxFloor)を上、1階を下に描画
-  for (let floor = r.maxFloor; floor >= 1; floor--) {
-    const tr = document.createElement("tr");
-
-    // 階ラベル
-    const label = document.createElement("td");
-    label.className = "floor-label";
-    label.textContent = floor + "F";
-    tr.appendChild(label);
-
-    for (let num = 1; num <= r.maxRoomNum; num++) {
-      const roomNo = String(floor * 100 + num);
-      // 非表示スキップ (DOM自体を生成しない → 隙間を詰める)
-      if (r.hiddenRooms.includes(roomNo)) continue;
-
-      if (!(roomNo in r.states)) r.states[roomNo] = 0;
-      const st = STATUSES[r.states[roomNo]];
-      const td = document.createElement("td");
-      td.textContent = roomNo;
-      td.style.background = st.color;
-      td.style.color = st.font;
-
-      attachPointerHandlers(td, {
-        onTap: () => {
-          r.states[roomNo] = (r.states[roomNo] + 1) % STATUS_COUNT;
-          saveData();
-          renderRoomGrid();
-        },
-        onLongPress: (x, y) => {
-          const items = STATUSES.map((s, i) => ({
-            swatch: s.color,
-            label: s.label,
-            onClick: () => {
-              r.states[roomNo] = i;
-              saveData();
-              renderRoomGrid();
-            },
-          }));
-          showContextMenu(x, y, items); // 削除ボタンは非表示
-        },
+      marker.addListener("dragend", (event) => {
+        const target = markersDataList.find(item => item.id === id);
+        if (target) { target.lat = event.latLng.lat(); target.lng = event.latLng.lng(); saveMarkersToStorage(); }
       });
-      tr.appendChild(td);
-    }
-    grid.appendChild(tr);
-  }
-}
 
-/* --- ツールバー操作 --- */
-function roomToolAction(action) {
-  const b = getActiveBuilding();
-  if (!b) return;
-  const r = b.rooms;
+      let roomsStructure = savedRoomsData;
+      if (!roomsStructure && type === 'building') {
+        roomsStructure = {
+          maxFloor: 1, maxRoomNum: 1, states: { "101": 0 }, hiddenRooms: [] // 非表示管理配列を追加
+        };
+      }
 
-  switch (action) {
-    case "addFloor": {
-      r.maxFloor += 1;
-      for (let num = 1; num <= r.maxRoomNum; num++) {
-        r.states[String(r.maxFloor * 100 + num)] = 0;
-      }
-      break;
+      markersDataList.push({
+        id: id, markerObject: marker,
+        lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat,
+        lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng,
+        statusIndex: statusIndex, type: type, rooms: roomsStructure
+      });
+
+      markerElement.addEventListener("pointerdown", (e) => {
+        e.stopPropagation(); startX = e.clientX; startY = e.clientY; isLongPress = false;
+        longPressTimer = setTimeout(() => { isLongPress = true; showDropdown(e, marker, type); }, 600);
+      });
+
+      markerElement.addEventListener("pointerup", (e) => {
+        e.stopPropagation(); clearTimeout(longPressTimer);
+        if (isLongPress || Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
+
+        if (type === 'house') {
+          let nextIndex = (parseInt(markerElement.dataset.statusIndex, 10) + 1) % STATUS_LIST.length;
+          markerElement.dataset.statusIndex = nextIndex;
+          updateMarkerSVG(markerElement, nextIndex, 'house');
+          updateMarkerData(id, nextIndex);
+        } else if (type === 'building') {
+          openRoomModal(id);
+        }
+      });
+
+      markerElement.addEventListener("pointercancel", () => clearTimeout(longPressTimer));
+      markerElement.addEventListener("contextmenu", (e) => e.preventDefault());
     }
-    case "addRoom": {
-      r.maxRoomNum += 1;
-      for (let floor = 1; floor <= r.maxFloor; floor++) {
-        r.states[String(floor * 100 + r.maxRoomNum)] = 0;
-      }
-      break;
+
+    function updateMarkerSVG(element, index, type) {
+      const status = STATUS_LIST[index];
+      const fillColor = (type === 'building') ? '#9ca3af' : status.code;
+      element.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36">
+          <path d="${SVG_PATHS[type] || SVG_PATHS.house}" fill="${fillColor}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      `;
     }
-    case "removeFloor": {
-      if (r.maxFloor <= 1) break; // 1階未満にはしない
-      const f = r.maxFloor;
-      for (let num = 1; num <= r.maxRoomNum; num++) {
-        delete r.states[String(f * 100 + num)];
-      }
-      r.hiddenRooms = r.hiddenRooms.filter(no => Math.floor(Number(no) / 100) !== f);
-      r.maxFloor -= 1;
-      break;
+
+    function updateMarkerData(id, newStatusIndex) {
+      const target = markersDataList.find(item => item.id === id);
+      if (target) { target.statusIndex = newStatusIndex; saveMarkersToStorage(); }
     }
-    case "removeRoom": {
-      if (r.maxRoomNum <= 1) break; // 1部屋未満にはしない
-      const n = r.maxRoomNum;
-      for (let floor = 1; floor <= r.maxFloor; floor++) {
-        delete r.states[String(floor * 100 + n)];
+
+    function showDropdown(event, marker, type, isRoom = false, roomNo = null) {
+      currentActiveMarker = marker; currentActiveRoomNo = roomNo;
+      const dropdown = document.getElementById("custom-dropdown");
+      const items = dropdown.querySelectorAll(".dropdown-item");
+      
+      if (type === 'building' && !isRoom) {
+        items.forEach(item => item.style.display = item.classList.contains("delete-item") ? "flex" : "none");
+      } else {
+        items.forEach(item => item.style.display = (item.classList.contains("delete-item") && isRoom) ? "none" : "flex");
       }
-      r.hiddenRooms = r.hiddenRooms.filter(no => (Number(no) % 100) !== n);
-      r.maxRoomNum -= 1;
-      break;
+
+      dropdown.style.left = `${event.pageX}px`; dropdown.style.top = `${event.pageY}px`; dropdown.style.display = "block";
     }
-    case "hide4": {
-      // 末尾が4の部屋を抽出して非表示化
-      for (let floor = 1; floor <= r.maxFloor; floor++) {
-        for (let num = 1; num <= r.maxRoomNum; num++) {
-          const roomNo = String(floor * 100 + num);
-          if (roomNo.endsWith("4") && !r.hiddenRooms.includes(roomNo)) {
-            r.hiddenRooms.push(roomNo);
+
+    function closeDropdown() {
+      const dropdown = document.getElementById("custom-dropdown");
+      if (dropdown.style.display === "block") { dropdown.style.display = "none"; return true; }
+      return false;
+    }
+
+    function selectDropdownStatus(index) {
+      if (currentActiveRoomNo && currentEditingBuildingId) {
+        const targetBuilding = markersDataList.find(item => item.id === currentEditingBuildingId);
+        if (targetBuilding && targetBuilding.rooms) {
+          targetBuilding.rooms.states[currentActiveRoomNo] = index;
+          renderRoomGrid(targetBuilding); saveMarkersToStorage();
+        }
+      } else if (currentActiveMarker && currentActiveMarker.content) {
+        const id = currentActiveMarker.content.dataset.id;
+        currentActiveMarker.content.dataset.statusIndex = index;
+        updateMarkerSVG(currentActiveMarker.content, index, currentActiveMarker.content.dataset.type);
+        updateMarkerData(id, index);
+      }
+      closeDropdown(); currentActiveRoomNo = null;
+    }
+
+    function deleteCurrentMarker() {
+      if (currentActiveMarker) {
+        const id = currentActiveMarker.content.dataset.id;
+        currentActiveMarker.map = null; 
+        markersDataList = markersDataList.filter(item => item.id !== id);
+        saveMarkersToStorage(); 
+      }
+      closeDropdown();
+    }
+
+    function createLegend() {
+      const legendDiv = document.createElement("div"); legendDiv.className = "map-legend";
+      let html = "<h4>【凡例】</h4>";
+      STATUS_LIST.forEach(s => html += `<div class="legend-item"><div class="legend-color" style="background-color: ${s.code};"></div><div>${s.label}</div></div>`);
+      legendDiv.innerHTML = html; map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legendDiv);
+    }
+
+    /* --- 部屋管理ロジック --- */
+    function openRoomModal(buildingId) {
+      currentEditingBuildingId = buildingId;
+      const targetBuilding = markersDataList.find(item => item.id === buildingId);
+      if (!targetBuilding) return;
+      document.getElementById("room-modal").style.display = "flex";
+      renderRoomGrid(targetBuilding);
+    }
+
+    function closeRoomModal() {
+      document.getElementById("room-modal").style.display = "none"; currentEditingBuildingId = null;
+    }
+
+    // 行（階）を追加
+    function addFloorRow() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      b.rooms.maxFloor += 1;
+      for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+        b.rooms.states[`${b.rooms.maxFloor}${String(r).padStart(2, '0')}`] = 0;
+      }
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 行（階）を削除
+    function removeFloorRow() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms || b.rooms.maxFloor <= 1) return; // 1階未満にはできない
+      
+      const f = b.rooms.maxFloor;
+      for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+        const roomNo = `${f}${String(r).padStart(2, '0')}`;
+        delete b.rooms.states[roomNo];
+        if (b.rooms.hiddenRooms) {
+          b.rooms.hiddenRooms = b.rooms.hiddenRooms.filter(room => room !== roomNo);
+        }
+      }
+      b.rooms.maxFloor -= 1;
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 列（部屋番号）を追加
+    function addRoomColumn() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      b.rooms.maxRoomNum += 1;
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        b.rooms.states[`${f}${String(b.rooms.maxRoomNum).padStart(2, '0')}`] = 0;
+      }
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 列（部屋番号）を削除
+    function removeRoomColumn() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms || b.rooms.maxRoomNum <= 1) return; // 1部屋未満にはできない
+      
+      const r = b.rooms.maxRoomNum;
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        const roomNo = `${f}${String(r).padStart(2, '0')}`;
+        delete b.rooms.states[roomNo];
+        if (b.rooms.hiddenRooms) {
+          b.rooms.hiddenRooms = b.rooms.hiddenRooms.filter(room => room !== roomNo);
+        }
+      }
+      b.rooms.maxRoomNum -= 1;
+      renderRoomGrid(b); saveMarkersToStorage();
+    }
+
+    // 4で終わる部屋を削除（非表示リストに追加）
+    function hideRoomsEndingInFour() {
+      const b = markersDataList.find(item => item.id === currentEditingBuildingId);
+      if (!b || !b.rooms) return;
+      if (!b.rooms.hiddenRooms) b.rooms.hiddenRooms = [];
+
+      for (let f = 1; f <= b.rooms.maxFloor; f++) {
+        for (let r = 1; r <= b.rooms.maxRoomNum; r++) {
+          // 列インデックスの末尾が4の場合（例: 4番目, 14番目）
+          if (r % 10 === 4) {
+            const roomNo = `${f}${String(r).padStart(2, '0')}`;
+            if (!b.rooms.hiddenRooms.includes(roomNo)) {
+              b.rooms.hiddenRooms.push(roomNo);
+            }
           }
         }
       }
-      break;
+      renderRoomGrid(b); saveMarkersToStorage();
     }
-  }
-  saveData();
-  renderRoomGrid();
-}
 
-/* ===========================================================================
-   UIイベント接続
-   =========================================================================== */
-function setupUI() {
-  // モード切替
-  const btnHouse = document.getElementById("btn-house");
-  const btnBuilding = document.getElementById("btn-building");
-  function setMode(mode) {
-    currentMode = mode;
-    document.getElementById("mode-" + mode).checked = true;
-    btnHouse.classList.toggle("active", mode === "house");
-    btnBuilding.classList.toggle("active", mode === "building");
-  }
-  btnHouse.addEventListener("click", () => setMode("house"));
-  btnBuilding.addEventListener("click", () => setMode("building"));
+    // グリッド描画（非表示スキップ処理を含む）
+    function renderRoomGrid(building) {
+      const container = document.getElementById("room-grid-container");
+      container.innerHTML = "";
+      const table = document.createElement("table"); table.className = "room-grid-table";
+      const rooms = building.rooms;
 
-  // 住所検索
-  document.getElementById("btn-search").addEventListener("click", () => {
-    const addr = prompt("検索する住所を入力してください");
-    if (!addr || !geocoder) return;
-    geocoder.geocode({ address: addr }, (results, status) => {
-      if (status === "OK" && results[0]) {
-        map.setCenter(results[0].geometry.location);
-        map.setZoom(18);
-      } else {
-        alert("住所が見つかりませんでした: " + status);
+      for (let f = rooms.maxFloor; f >= 1; f--) {
+        const tr = document.createElement("tr");
+        for (let r = 1; r <= rooms.maxRoomNum; r++) {
+          const roomNo = `${f}${String(r).padStart(2, '0')}`;
+          
+          // 削除された（非表示の）部屋はDOMを生成せずスキップすることで列を詰める
+          if (rooms.hiddenRooms && rooms.hiddenRooms.includes(roomNo)) continue;
+
+          const statusIdx = rooms.states[roomNo] !== undefined ? rooms.states[roomNo] : 0;
+          const statusConfig = STATUS_LIST[statusIdx];
+
+          const td = document.createElement("td");
+          const cell = document.createElement("div");
+          cell.className = "room-cell"; cell.innerText = roomNo;
+          cell.style.backgroundColor = statusConfig.code;
+          cell.style.color = (statusConfig.color === 'white' || statusConfig.color === 'yellow') ? '#1a1a1a' : '#ffffff';
+
+          cell.addEventListener("pointerdown", (e) => {
+            e.stopPropagation(); startX = e.clientX; startY = e.clientY; isLongPress = false;
+            longPressTimer = setTimeout(() => { isLongPress = true; showDropdown(e, null, 'house', true, roomNo); }, 600);
+          });
+
+          cell.addEventListener("pointerup", (e) => {
+            e.stopPropagation(); clearTimeout(longPressTimer);
+            if (isLongPress || Math.hypot(e.clientX - startX, e.clientY - startY) > 10) return;
+            rooms.states[roomNo] = (statusIdx + 1) % STATUS_LIST.length;
+            renderRoomGrid(building); saveMarkersToStorage();
+          });
+
+          cell.addEventListener("pointercancel", () => clearTimeout(longPressTimer));
+          td.appendChild(cell); tr.appendChild(td);
+        }
+        table.appendChild(tr);
       }
-    });
-  });
+      container.appendChild(table);
+    }
 
-  // モーダル閉じる
-  document.getElementById("modal-close").addEventListener("click", closeRoomModal);
-  document.getElementById("room-modal-overlay").addEventListener("click", (e) => {
-    if (e.target.id === "room-modal-overlay") closeRoomModal();
-  });
+    function saveMarkersToStorage() {
+      const dataToSave = markersDataList.map(item => ({
+        id: item.id, lat: item.lat, lng: item.lng,
+        statusIndex: item.statusIndex, type: item.type, rooms: item.rooms 
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    }
 
-  // ツールバー
-  document.querySelectorAll(".tool-btn").forEach(btn => {
-    btn.addEventListener("click", () => roomToolAction(btn.dataset.action));
-  });
-}
-document.addEventListener("DOMContentLoaded", setupUI);
-</script>
+    function loadMarkersFromStorage() {
+      const savedData = localStorage.getItem(STORAGE_KEY);
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          parsedData.forEach(data => {
+            const latLng = new google.maps.LatLng(data.lat, data.lng);
+            createCustomMarker(latLng, data.statusIndex, data.id, data.type, data.rooms);
+          });
+        } catch (e) { console.error("データの読み込みに失敗しました", e); }
+      }
+    }
+  </script>
+</head>
+<body>
 
-<!-- Google Maps JavaScript API
-     ↓ YOUR_API_KEY を発行済みのAPIキーに置き換えてください
-     (Maps JavaScript API / Geocoding API を有効化) -->
-<script
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDtvSztTUF8ZII0NAicO6ShioboQX2kRI8&libraries=marker,geocoding&callback=initMap&v=weekly"
-  async defer>
-</script>
+  <div id="map"></div>
+
+  <div id="custom-dropdown">
+    <div class="dropdown-item" onclick="selectDropdownStatus(0)"><div class="color-badge" style="background:#ffffff;"></div>未訪問</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(1)"><div class="color-badge" style="background:#3b82f6;"></div>訪問済み</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(2)"><div class="color-badge" style="background:#eab308;"></div>留守</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(3)"><div class="color-badge" style="background:#f97316;"></div>留守２回以上</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(4)"><div class="color-badge" style="background:#ef4444;"></div>訪問拒否</div>
+    <div class="dropdown-item" onclick="selectDropdownStatus(5)"><div class="color-badge" style="background:#6b7280;"></div>空家</div>
+    <div class="dropdown-item delete-item" onclick="deleteCurrentMarker()">アイコンを削除</div>
+  </div>
+
+  <div id="room-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>🏢 アパート部屋管理</h3>
+        <button type="button" class="close-modal-btn" onclick="closeRoomModal()">×</button>
+      </div>
+      <div class="modal-toolbar">
+        <button type="button" class="toolbar-btn" onclick="addFloorRow()">＋ 行追加 (上階)</button>
+        <button type="button" class="toolbar-btn" onclick="addRoomColumn()">＋ 列追加 (部屋)</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="removeFloorRow()">－ 行削除</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="removeRoomColumn()">－ 列削除</button>
+        <button type="button" class="toolbar-btn btn-danger" onclick="hideRoomsEndingInFour()">✖ 「4」を削除</button>
+      </div>
+      <div class="modal-body">
+        <div id="room-grid-container"></div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
