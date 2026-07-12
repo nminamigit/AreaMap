@@ -22,7 +22,6 @@
     height: 100%;
     overflow: hidden;
     font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
-    /* iOS標準の選択・コールアウトメニューを抑制 */
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
@@ -33,7 +32,6 @@
     height: 100vh;
   }
 
-  /* ==== コントロールパネル（右上）==== */
   #control-panel {
     position: absolute;
     top: 12px;
@@ -78,12 +76,10 @@
     transform: scale(0.95);
   }
 
-  /* radioは非表示。ラベルボタンで制御 */
   .mode-group input[type="radio"] {
     display: none;
   }
 
-  /* ==== 凡例（右下）==== */
   #legend {
     position: absolute;
     bottom: 20px;
@@ -118,7 +114,6 @@
     flex: 0 0 auto;
   }
 
-  /* ==== マーカー ==== */
   .marker-wrap {
     width: 44px;
     height: 44px;
@@ -137,7 +132,6 @@
     pointer-events: none;
   }
 
-  /* ==== カスタムコンテキストメニュー ==== */
   #context-menu {
     position: fixed;
     z-index: 40;
@@ -175,7 +169,6 @@
     margin-top: 4px;
   }
 
-  /* ==== アパート部屋管理モーダル ==== */
   #room-modal-overlay {
     position: fixed;
     inset: 0;
@@ -273,7 +266,6 @@
 <body>
   <div id="map"></div>
 
-  <!-- コントロールパネル（右上） -->
   <div id="control-panel">
     <div class="mode-group">
       <input type="radio" name="mode" id="mode-house" value="house" checked />
@@ -284,16 +276,13 @@
     <button class="ctrl-btn" id="btn-search" title="住所検索" style="width:108px;">🔍</button>
   </div>
 
-  <!-- 凡例（右下） -->
   <div id="legend">
     <div class="legend-title">ステータス凡例</div>
     <div id="legend-list"></div>
   </div>
 
-  <!-- カスタムコンテキストメニュー -->
   <div id="context-menu"></div>
 
-  <!-- 部屋管理モーダル -->
   <div id="room-modal-overlay">
     <div id="room-modal">
       <div class="modal-header">
@@ -314,12 +303,6 @@
   </div>
 
 <script>
-/* ===========================================================================
-   訪問管理マップツール (iPad向け Vanilla JS)
-   仕様書準拠 : Google Maps AdvancedMarkerElement + Geocoding + localStorage
-   =========================================================================== */
-
-/* ---- 2. ステータス定義 ---------------------------------------------------- */
 const STATUSES = [
   { label: "未訪問",       color: "#ffffff", font: "#1a1a1a" },
   { label: "訪問済み",     color: "#3b82f6", font: "#ffffff" },
@@ -329,30 +312,25 @@ const STATUSES = [
   { label: "空家",         color: "#6b7280", font: "#ffffff" },
 ];
 const STATUS_COUNT = STATUSES.length;
-const BUILDING_COLOR = "#9ca3af"; // ビルは常にこの色
+const BUILDING_COLOR = "#9ca3af";
 
-/* ---- 定数 ---------------------------------------------------------------- */
 const STORAGE_KEY = "ipad_map_markers_v5";
 const LONG_PRESS_MS = 600;
-const MOVE_THRESHOLD = 10; // px
+const MOVE_THRESHOLD = 10;
 const TOKYO_STATION = { lat: 35.681236, lng: 139.767125 };
 
-/* ---- グローバル状態 ------------------------------------------------------- */
 let map;
 let AdvancedMarkerElement;
 let geocoder;
-let currentMode = "house";       // "house" | "building"
-let markersData = [];            // 保存用データ配列
-let markerObjects = {};          // id -> { data, gmarker, contentEl }
+let currentMode = "house";
+let markersData = [];
+let markerObjects = {};
 let longPressTimer = null;
 let longPressFired = false;
 let pointerStart = { x: 0, y: 0 };
-let suppressNextMapClick = false; // マーカー操作直後のマップクリック誤爆防止
-let activeBuildingId = null;      // モーダルで開いているビルのID
+let suppressNextMapClick = false;
+let activeBuildingId = null;
 
-/* ===========================================================================
-   SVGアイコン生成
-   =========================================================================== */
 function houseSVG(color) {
   const stroke = "#1a1a1a";
   return `
@@ -362,12 +340,13 @@ function houseSVG(color) {
             stroke-linejoin="round"/>
     </svg>`;
 }
-function buildingSVG() {
+
+function buildingSVG(color = BUILDING_COLOR) {
   const stroke = "#1a1a1a";
   return `
     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M4 2h11v20H4zM15 8h5v14h-5z"
-            fill="${BUILDING_COLOR}" stroke="${stroke}" stroke-width="1"
+            fill="${color}" stroke="${stroke}" stroke-width="1"
             stroke-linejoin="round"/>
       <g fill="${stroke}">
         <rect x="6"  y="4"  width="2" height="2"/>
@@ -384,9 +363,36 @@ function buildingSVG() {
     </svg>`;
 }
 
-/* ===========================================================================
-   localStorage 永続化
-   =========================================================================== */
+function getBuildingColor(data) {
+  // オンライン区域の場合は最優先でオレンジ
+  if (data.isOnlineArea) return "#f97316";
+
+  const r = data.rooms;
+  if (!r) return BUILDING_COLOR;
+
+  let validRoomCount = 0;
+  let hasUnvisited = false;
+  let hasBlueOrYellow = false;
+
+  for (let floor = 1; floor <= r.maxFloor; floor++) {
+    for (let num = 1; num <= r.maxRoomNum; num++) {
+      const roomNo = String(floor * 100 + num);
+      if (r.hiddenRooms.includes(roomNo)) continue;
+      
+      validRoomCount++;
+      const st = r.states[roomNo] || 0;
+      if (st === 0) hasUnvisited = true; // 0: 未訪問
+      if (st === 1 || st === 2) hasBlueOrYellow = true; // 1: 青(訪問済), 2: 黄(留守)
+    }
+  }
+
+  // 優先順位に沿って色を判定
+  if (validRoomCount <= 1) return "#9ca3af"; // グレー (101のみ等の初期状態)
+  if (!hasUnvisited && validRoomCount > 0) return "#3b82f6"; // 青 (未訪問が1件もない時)
+  if (hasBlueOrYellow) return "#eab308"; // 黄色 (1件でも青か黄がある時)
+  return "#ffffff"; // 白 (2部屋以上で上記以外)
+}
+
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(markersData));
@@ -394,6 +400,7 @@ function saveData() {
     console.error("保存失敗:", e);
   }
 }
+
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -404,9 +411,6 @@ function loadData() {
   }
 }
 
-/* ===========================================================================
-   凡例の描画
-   =========================================================================== */
 function renderLegend() {
   const list = document.getElementById("legend-list");
   list.innerHTML = STATUSES.map(s =>
@@ -417,9 +421,6 @@ function renderLegend() {
   ).join("");
 }
 
-/* ===========================================================================
-   Google Maps 初期化 (コールバック)
-   =========================================================================== */
 async function initMap() {
   const { Map } = await google.maps.importLibrary("maps");
   const markerLib = await google.maps.importLibrary("marker");
@@ -435,30 +436,27 @@ async function initMap() {
     zoomControl: true,
     gestureHandling: "greedy",
     clickableIcons: false,
-    mapId: "DEMO_MAP_ID", // AdvancedMarkerElement利用に必要
+    mapId: "DEMO_MAP_ID",
   });
 
-  // 何もない場所タップでマーカー追加
   map.addListener("click", (e) => {
     if (suppressNextMapClick) { suppressNextMapClick = false; return; }
     addMarker(e.latLng.lat(), e.latLng.lng(), currentMode);
   });
-  // 地図タップでコンテキストメニューを閉じる
+  
   map.addListener("click", hideContextMenu);
   map.addListener("dragstart", hideContextMenu);
 
-  // 保存データの復元
   markersData = loadData();
   markersData.forEach(createMarkerObject);
 
-  // 現在地取得 → 中心へ
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         map.setZoom(16);
       },
-      () => { /* 取得不可 → 東京駅のまま */ },
+      () => {},
       { enableHighAccuracy: true, timeout: 8000 }
     );
   }
@@ -467,9 +465,6 @@ async function initMap() {
 }
 window.initMap = initMap;
 
-/* ===========================================================================
-   マーカー生成
-   =========================================================================== */
 function defaultRooms() {
   return {
     maxFloor: 1,
@@ -486,6 +481,7 @@ function addMarker(lat, lng, type) {
     statusIndex: 0,
     type,
     rooms: type === "building" ? defaultRooms() : null,
+    isOnlineArea: false // 新規追加フラグ
   };
   markersData.push(data);
   createMarkerObject(data);
@@ -497,7 +493,7 @@ function createMarkerObject(data) {
   wrap.className = "marker-wrap";
   wrap.innerHTML = data.type === "house"
     ? houseSVG(STATUSES[data.statusIndex].color)
-    : buildingSVG();
+    : buildingSVG(getBuildingColor(data));
 
   const gmarker = new AdvancedMarkerElement({
     map,
@@ -506,10 +502,9 @@ function createMarkerObject(data) {
     gmpDraggable: true,
   });
 
-  // ドラッグ完了で座標保存
   gmarker.addListener("dragstart", () => {
     clearLongPress();
-    longPressFired = true; // ドラッグ中は短押し扱いしない
+    longPressFired = true; 
   });
   gmarker.addListener("dragend", () => {
     const p = gmarker.position;
@@ -532,7 +527,7 @@ function refreshMarkerVisual(data) {
   if (!obj) return;
   obj.contentEl.innerHTML = data.type === "house"
     ? houseSVG(STATUSES[data.statusIndex].color)
-    : buildingSVG();
+    : buildingSVG(getBuildingColor(data));
 }
 
 function removeMarker(id) {
@@ -545,12 +540,8 @@ function removeMarker(id) {
   saveData();
 }
 
-/* ===========================================================================
-   7. タッチイベント判定 (PointerEvents) — タップ / 長押し の分離
-   =========================================================================== */
 function attachPointerHandlers(el, { onTap, onLongPress }) {
   el.addEventListener("pointerdown", (e) => {
-    // マーカー操作開始 → マップクリック抑制
     pointerStart = { x: e.clientX, y: e.clientY };
     longPressFired = false;
     clearLongPress();
@@ -572,10 +563,10 @@ function attachPointerHandlers(el, { onTap, onLongPress }) {
     clearLongPress();
     suppressNextMapClick = true;
     setTimeout(() => { suppressNextMapClick = false; }, 350);
-    if (longPressFired) return; // 長押し済み → 短押しキャンセル
+    if (longPressFired) return;
     const dx = Math.abs(e.clientX - pointerStart.x);
     const dy = Math.abs(e.clientY - pointerStart.y);
-    if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) return; // 移動 → キャンセル
+    if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) return;
     onTap();
   });
 
@@ -583,7 +574,6 @@ function attachPointerHandlers(el, { onTap, onLongPress }) {
     clearLongPress();
   });
 
-  // iOS標準メニュー抑制
   el.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
@@ -594,9 +584,6 @@ function clearLongPress() {
   }
 }
 
-/* ===========================================================================
-   5. マーカー固有ロジック
-   =========================================================================== */
 function handleMarkerTap(data) {
   if (data.type === "house") {
     data.statusIndex = (data.statusIndex + 1) % STATUS_COUNT;
@@ -621,8 +608,18 @@ function handleMarkerLongPress(data, x, y) {
         },
       });
     });
+  } else if (data.type === "building") {
+    // オンライン区域のトグル設定追加
+    items.push({
+      label: data.isOnlineArea ? "✅ オンライン区域" : "オンライン区域",
+      onClick: () => {
+        data.isOnlineArea = !data.isOnlineArea;
+        refreshMarkerVisual(data);
+        saveData();
+      }
+    });
   }
-  // 家・ビル共通で削除ボタン
+
   items.push({
     delete: true,
     label: "アイコンを削除",
@@ -631,9 +628,6 @@ function handleMarkerLongPress(data, x, y) {
   showContextMenu(x, y, items);
 }
 
-/* ===========================================================================
-   カスタムコンテキストメニュー
-   =========================================================================== */
 function showContextMenu(x, y, items) {
   const menu = document.getElementById("context-menu");
   menu.innerHTML = "";
@@ -645,15 +639,24 @@ function showContextMenu(x, y, items) {
     } else {
       div.innerHTML = `<span>${it.label}</span>`;
     }
+    
+    // バグ修正: メニュー操作時のイベント伝播を厳密に遮断
+    div.addEventListener("pointerdown", (e) => e.stopPropagation());
+    div.addEventListener("click", (e) => e.stopPropagation());
     div.addEventListener("pointerup", (e) => {
       e.stopPropagation();
+      e.preventDefault();
       hideContextMenu();
+      
+      // マップ側での誤爆クリック防止フラグをセット
+      suppressNextMapClick = true;
+      setTimeout(() => { suppressNextMapClick = false; }, 350);
+
       it.onClick();
     });
     menu.appendChild(div);
   });
 
-  // 一旦表示してサイズ計測 → 画面内に収める
   menu.style.display = "block";
   menu.style.left = "0px";
   menu.style.top = "0px";
@@ -673,7 +676,6 @@ function hideContextMenu() {
   menu.style.display = "none";
 }
 
-// メニュー外タップで閉じる
 document.addEventListener("pointerdown", (e) => {
   const menu = document.getElementById("context-menu");
   if (menu.style.display === "block" && !menu.contains(e.target)) {
@@ -682,9 +684,6 @@ document.addEventListener("pointerdown", (e) => {
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-/* ===========================================================================
-   6. アパート部屋管理モーダル
-   =========================================================================== */
 function openRoomModal(data) {
   activeBuildingId = data.id;
   if (!data.rooms) data.rooms = defaultRooms();
@@ -708,11 +707,9 @@ function renderRoomGrid() {
   const grid = document.getElementById("room-grid");
   grid.innerHTML = "";
 
-  // ボトムアップ: 最上階(maxFloor)を上、1階を下に描画
   for (let floor = r.maxFloor; floor >= 1; floor--) {
     const tr = document.createElement("tr");
 
-    // 階ラベル
     const label = document.createElement("td");
     label.className = "floor-label";
     label.textContent = floor + "F";
@@ -720,7 +717,6 @@ function renderRoomGrid() {
 
     for (let num = 1; num <= r.maxRoomNum; num++) {
       const roomNo = String(floor * 100 + num);
-      // 非表示スキップ (DOM自体を生成しない → 隙間を詰める)
       if (r.hiddenRooms.includes(roomNo)) continue;
 
       if (!(roomNo in r.states)) r.states[roomNo] = 0;
@@ -735,6 +731,7 @@ function renderRoomGrid() {
           r.states[roomNo] = (r.states[roomNo] + 1) % STATUS_COUNT;
           saveData();
           renderRoomGrid();
+          refreshMarkerVisual(b); // ステータス変更時にビルアイコン色を更新
         },
         onLongPress: (x, y) => {
           const items = STATUSES.map((s, i) => ({
@@ -744,9 +741,10 @@ function renderRoomGrid() {
               r.states[roomNo] = i;
               saveData();
               renderRoomGrid();
+              refreshMarkerVisual(b); // ステータス変更時にビルアイコン色を更新
             },
           }));
-          showContextMenu(x, y, items); // 削除ボタンは非表示
+          showContextMenu(x, y, items);
         },
       });
       tr.appendChild(td);
@@ -755,7 +753,6 @@ function renderRoomGrid() {
   }
 }
 
-/* --- ツールバー操作 --- */
 function roomToolAction(action) {
   const b = getActiveBuilding();
   if (!b) return;
@@ -777,7 +774,7 @@ function roomToolAction(action) {
       break;
     }
     case "removeFloor": {
-      if (r.maxFloor <= 1) break; // 1階未満にはしない
+      if (r.maxFloor <= 1) break;
       const f = r.maxFloor;
       for (let num = 1; num <= r.maxRoomNum; num++) {
         delete r.states[String(f * 100 + num)];
@@ -787,7 +784,7 @@ function roomToolAction(action) {
       break;
     }
     case "removeRoom": {
-      if (r.maxRoomNum <= 1) break; // 1部屋未満にはしない
+      if (r.maxRoomNum <= 1) break;
       const n = r.maxRoomNum;
       for (let floor = 1; floor <= r.maxFloor; floor++) {
         delete r.states[String(floor * 100 + n)];
@@ -797,7 +794,6 @@ function roomToolAction(action) {
       break;
     }
     case "hide4": {
-      // 末尾が4の部屋を抽出して非表示化
       for (let floor = 1; floor <= r.maxFloor; floor++) {
         for (let num = 1; num <= r.maxRoomNum; num++) {
           const roomNo = String(floor * 100 + num);
@@ -811,13 +807,10 @@ function roomToolAction(action) {
   }
   saveData();
   renderRoomGrid();
+  refreshMarkerVisual(b); // 部屋数増減時にビルアイコン色を更新
 }
 
-/* ===========================================================================
-   UIイベント接続
-   =========================================================================== */
 function setupUI() {
-  // モード切替
   const btnHouse = document.getElementById("btn-house");
   const btnBuilding = document.getElementById("btn-building");
   function setMode(mode) {
@@ -829,7 +822,6 @@ function setupUI() {
   btnHouse.addEventListener("click", () => setMode("house"));
   btnBuilding.addEventListener("click", () => setMode("building"));
 
-  // 住所検索
   document.getElementById("btn-search").addEventListener("click", () => {
     const addr = prompt("検索する住所を入力してください");
     if (!addr || !geocoder) return;
@@ -843,13 +835,11 @@ function setupUI() {
     });
   });
 
-  // モーダル閉じる
   document.getElementById("modal-close").addEventListener("click", closeRoomModal);
   document.getElementById("room-modal-overlay").addEventListener("click", (e) => {
     if (e.target.id === "room-modal-overlay") closeRoomModal();
   });
 
-  // ツールバー
   document.querySelectorAll(".tool-btn").forEach(btn => {
     btn.addEventListener("click", () => roomToolAction(btn.dataset.action));
   });
@@ -857,9 +847,6 @@ function setupUI() {
 document.addEventListener("DOMContentLoaded", setupUI);
 </script>
 
-<!-- Google Maps JavaScript API
-     ↓ YOUR_API_KEY を発行済みのAPIキーに置き換えてください
-     (Maps JavaScript API / Geocoding API を有効化) -->
 <script
   src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBq9JYstLuQA-I4CoZGz5RfLa8ySztx-l8&libraries=marker,geocoding&callback=initMap&v=weekly"
   async defer>
