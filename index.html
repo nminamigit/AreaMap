@@ -745,6 +745,17 @@ function getActiveBuilding() {
   return markersData.find(m => m.id === activeBuildingId);
 }
 
+function countVisibleRooms(r) {
+  let count = 0;
+  for (let floor = 1; floor <= r.maxFloor; floor++) {
+    for (let num = 1; num <= r.maxRoomNum; num++) {
+      const roomNo = String(floor * 100 + num);
+      if (!r.hiddenRooms.includes(roomNo)) count++;
+    }
+  }
+  return count;
+}
+
 function renderRoomGrid() {
   const b = getActiveBuilding();
   if (!b) return;
@@ -789,6 +800,21 @@ function renderRoomGrid() {
               refreshMarkerVisual(b); // ステータス変更時にビルアイコン色を更新
             },
           }));
+          // 部屋ごとの削除（各階で部屋数が異なる間取りに対応）
+          items.push({
+            delete: true,
+            label: "この部屋を削除",
+            onClick: () => {
+              if (countVisibleRooms(r) <= 1) {
+                alert("最後の1部屋は削除できません");
+                return;
+              }
+              if (!r.hiddenRooms.includes(roomNo)) r.hiddenRooms.push(roomNo);
+              saveData();
+              renderRoomGrid();
+              refreshMarkerVisual(b); // 部屋削除時にビルアイコン色を更新
+            },
+          });
           showContextMenu(x, y, items);
         },
       });
