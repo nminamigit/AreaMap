@@ -479,11 +479,12 @@ async function initMap() {
 
   map.addListener("click", (e) => {
     if (suppressNextMapClick) { suppressNextMapClick = false; return; }
+    // マーカー長押し等の残余クリックではメニューを閉じない（ロック中でも維持）
+    hideContextMenu();
     if (isLocked) return;
     addMarker(e.latLng.lat(), e.latLng.lng(), currentMode);
   });
   
-  map.addListener("click", hideContextMenu);
   map.addListener("dragstart", hideContextMenu);
 
   markersData = loadData();
