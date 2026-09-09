@@ -422,6 +422,8 @@ const STORAGE_KEY = "ipad_map_markers_v5";
 const LOCK_KEY = "ipad_map_locked_v1";
 const LONG_PRESS_MS = 600;
 const MOVE_THRESHOLD = 10;
+const MAP_CLICK_GUARD_MS = 500;
+const MENU_ACTION_MAP_CLICK_GUARD_MS = 1200;
 const TOKYO_STATION = { lat: 35.681236, lng: 139.767125 };
 
 let map;
@@ -433,7 +435,7 @@ let markerObjects = {};
 let longPressTimer = null;
 let longPressFired = false;
 let pointerStart = { x: 0, y: 0 };
-let suppressNextMapClick = false;
+let mapClickBlockedUntil = 0;
 let activeBuildingId = null;
 let isLocked = false;
 let selectionMode = false;
@@ -583,7 +585,7 @@ async function initMap() {
   });
 
   map.addListener("click", (e) => {
-    if (suppressNextMapClick) { suppressNextMapClick = false; return; }
+    if (isMapClickBlocked()) return;
     // マーカー長押し等の残余クリックではメニューを閉じない（ロック中でも維持）
     hideContextMenu();
     if (isLocked) return;
@@ -659,8 +661,7 @@ function createMarkerObject(data) {
     data.lat = (typeof p.lat === "function") ? p.lat() : p.lat;
     data.lng = (typeof p.lng === "function") ? p.lng() : p.lng;
     saveData();
-    suppressNextMapClick = true;
-    setTimeout(() => { suppressNextMapClick = false; }, 350);
+    blockMapClicksFor(MAP_CLICK_GUARD_MS);
   });
 
   attachPointerHandlers(wrap, {
@@ -710,8 +711,7 @@ function attachPointerHandlers(el, { onTap, onLongPress }) {
 
   el.addEventListener("pointerup", (e) => {
     clearLongPress();
-    suppressNextMapClick = true;
-    setTimeout(() => { suppressNextMapClick = false; }, 350);
+    blockMapClicksFor(MAP_CLICK_GUARD_MS);
     if (longPressFired) return;
     const dx = Math.abs(e.clientX - pointerStart.x);
     const dy = Math.abs(e.clientY - pointerStart.y);
@@ -731,6 +731,14 @@ function clearLongPress() {
     clearTimeout(longPressTimer);
     longPressTimer = null;
   }
+}
+
+function blockMapClicksFor(durationMs) {
+  mapClickBlockedUntil = Math.max(mapClickBlockedUntil, Date.now() + durationMs);
+}
+
+function isMapClickBlocked() {
+  return Date.now() < mapClickBlockedUntil;
 }
 
 function handleMarkerTap(data) {
@@ -793,18 +801,22 @@ function showContextMenu(x, y, items) {
       div.innerHTML = `<span>${it.label}</span>`;
     }
     
-    // バグ修正: メニュー操作時のイベント伝播を厳密に遮断
-    div.addEventListener("pointerdown", (e) => e.stopPropagation());
-    div.addEventListener("click", (e) => e.stopPropagation());
+    // メニュー操作を地図タップとして扱わせない。
+    // Google Maps側のクリックはDOMイベントより遅れて届く場合があるため、
+    // stopPropagationに加えて時刻ベースのガードを使用する。
+    div.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      blockMapClicksFor(MENU_ACTION_MAP_CLICK_GUARD_MS);
+    });
+    div.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
     div.addEventListener("pointerup", (e) => {
       e.stopPropagation();
       e.preventDefault();
       hideContextMenu();
-      
-      // マップ側での誤爆クリック防止フラグをセット
-      suppressNextMapClick = true;
-      setTimeout(() => { suppressNextMapClick = false; }, 350);
-
+      blockMapClicksFor(MENU_ACTION_MAP_CLICK_GUARD_MS);
       it.onClick();
     });
     menu.appendChild(div);
@@ -918,8 +930,7 @@ document.addEventListener("pointerdown", (e) => {
   if (menu.style.display === "block" && !menu.contains(e.target)) {
     hideContextMenu();
     // メニュー外タップで閉じた際、同じタップでマーカーが追加されるのを防ぐ
-    suppressNextMapClick = true;
-    setTimeout(() => { suppressNextMapClick = false; }, 350);
+    blockMapClicksFor(MAP_CLICK_GUARD_MS);
   }
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
