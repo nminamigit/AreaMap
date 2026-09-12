@@ -51,6 +51,25 @@
     gap: 8px;
   }
 
+  .backup-group {
+    display: flex;
+    gap: 8px;
+  }
+
+  .ctrl-btn.backup-btn {
+    width: 50px;
+    height: 50px;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 18px;
+  }
+
+  .backup-label {
+    font-size: 10px;
+    line-height: 1;
+    font-weight: bold;
+  }
+
   .ctrl-btn {
     width: 50px;
     height: 50px;
@@ -130,7 +149,8 @@
     pointer-events: none;
   }
 
-  #select-action-overlay {
+  #select-action-overlay,
+  #backup-action-overlay {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -139,26 +159,44 @@
     align-items: center;
     justify-content: center;
   }
-  #select-action-box {
+  #backup-action-overlay { z-index: 55; }
+  #select-action-box,
+  #backup-action-box {
     background: #ffffff;
     border-radius: 16px;
     padding: 16px;
-    width: min(80vw, 320px);
+    width: min(86vw, 340px);
     display: flex;
     flex-direction: column;
     gap: 10px;
     box-shadow: var(--shadow);
   }
-  #select-action-box .sa-title {
+  #select-action-box .sa-title,
+  #backup-action-box .ba-title {
     font-weight: bold;
     font-size: 15px;
     text-align: center;
     margin-bottom: 4px;
   }
-  #select-action-box .tool-btn {
+  #backup-action-box .ba-summary {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #374151;
+    text-align: center;
+    white-space: pre-line;
+  }
+  #select-action-box .tool-btn,
+  #backup-action-box .tool-btn {
     padding: 12px;
     font-size: 15px;
     text-align: center;
+  }
+  #backup-action-box .tool-btn.primary,
+  #select-action-box .tool-btn.primary {
+    color: #ffffff;
+    background: #2563eb;
+    border-color: #2563eb;
+    font-weight: bold;
   }
 
   .mode-group input[type="radio"] {
@@ -360,7 +398,12 @@
     </div>
     <button class="ctrl-btn" id="btn-search" title="住所検索" style="width:108px;">🔍</button>
     <button class="ctrl-btn" id="btn-lock" title="編集ロック（タップでロック）" style="width:108px;">🔓</button>
-    <button class="ctrl-btn" id="btn-select" title="範囲選択して未訪問に戻す" style="width:108px;font-size:14px;">▭ 範囲選択</button>
+    <button class="ctrl-btn" id="btn-select" title="範囲選択して一括操作" style="width:108px;font-size:14px;">▭ 範囲選択</button>
+    <div class="backup-group">
+      <button class="ctrl-btn backup-btn" id="btn-backup-export" type="button" title="バックアップを書き出す" aria-label="バックアップを書き出す">⇧<span class="backup-label">書出</span></button>
+      <button class="ctrl-btn backup-btn" id="btn-backup-import" type="button" title="バックアップを読み込む" aria-label="バックアップを読み込む">⇩<span class="backup-label">読込</span></button>
+    </div>
+    <input type="file" id="backup-file-input" accept="application/json,.json" hidden />
   </div>
 
   <div id="legend">
@@ -381,8 +424,19 @@
     <div id="select-action-box">
       <div class="sa-title" id="sa-title">選択範囲</div>
       <button class="tool-btn" id="sa-reset">未訪問に戻す</button>
+      <button class="tool-btn primary" id="sa-export">選択範囲を書き出す</button>
       <button class="tool-btn danger" id="sa-delete">削除する</button>
       <button class="tool-btn" id="sa-cancel">キャンセル</button>
+    </div>
+  </div>
+
+  <div id="backup-action-overlay">
+    <div id="backup-action-box">
+      <div class="ba-title">バックアップの読み込み</div>
+      <div class="ba-summary" id="backup-action-summary"></div>
+      <button class="tool-btn danger" id="backup-replace">現在のデータを置き換える</button>
+      <button class="tool-btn primary" id="backup-add">現在のデータに追加する</button>
+      <button class="tool-btn" id="backup-cancel">キャンセル</button>
     </div>
   </div>
 
@@ -420,6 +474,9 @@ const ONLINE_AREA_COLOR = "#38bdf8";
 
 const STORAGE_KEY = "ipad_map_markers_v5";
 const LOCK_KEY = "ipad_map_locked_v1";
+const BACKUP_FORMAT = "ipad_visit_map_backup";
+const BACKUP_VERSION = 1;
+const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
 const LONG_PRESS_MS = 600;
 const MOVE_THRESHOLD = 10;
 const MAP_CLICK_GUARD_MS = 500;
@@ -442,6 +499,7 @@ let selectionMode = false;
 let overlayProjection = null;
 let selStart = null;
 let pendingSelection = null;
+let pendingBackupImport = null;
 
 function houseSVG(color) {
   const stroke = "#1a1a1a";
@@ -549,6 +607,295 @@ function loadData() {
     console.error("読込失敗:", e);
     return [];
   }
+}
+
+function formatBackupTimestamp(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return String(date.getFullYear())
+    + pad(date.getMonth() + 1)
+    + pad(date.getDate())
+    + "_"
+    + pad(date.getHours())
+    + pad(date.getMinutes());
+}
+
+function buildBackupPayload(markerSubset = null, scope = "all") {
+  const storedMarkers = markerSubset === null ? loadData() : markerSubset;
+  const sourceMarkers = Array.isArray(storedMarkers) ? storedMarkers : [];
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    scope,
+    exportedAt: new Date().toISOString(),
+    markers: sourceMarkers.map(cloneMarkerData),
+    isLocked: loadLock(),
+  };
+}
+
+function downloadBackupBlob(blob, fileName, message = "バックアップを保存しました") {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(message);
+}
+
+async function exportBackup(markerSubset = null, scope = "all") {
+  const isSelection = scope === "selection";
+  const payload = buildBackupPayload(markerSubset, scope);
+  const json = JSON.stringify(payload, null, 2);
+  const filePrefix = isSelection ? "訪問管理マップ_範囲バックアップ_" : "訪問管理マップ_バックアップ_";
+  const fileName = filePrefix + formatBackupTimestamp(new Date()) + ".json";
+  const blob = new Blob([json], { type: "application/json" });
+  const file = typeof File === "function"
+    ? new File([blob], fileName, { type: "application/json" })
+    : null;
+
+  let canShareFile = false;
+  if (file && navigator.share && navigator.canShare) {
+    try {
+      canShareFile = navigator.canShare({ files: [file] });
+    } catch (e) {
+      canShareFile = false;
+    }
+  }
+
+  if (canShareFile) {
+    try {
+      await navigator.share({
+        title: isSelection ? "訪問管理マップ 範囲バックアップ" : "訪問管理マップ バックアップ",
+        text: isSelection ? "選択範囲の訪問管理マップのバックアップです。" : "訪問管理マップのバックアップです。",
+        files: [file],
+      });
+      return "shared";
+    } catch (e) {
+      if (e && e.name === "AbortError") return "cancelled";
+      console.warn("共有画面を開けなかったため、ファイル保存に切り替えます。", e);
+    }
+  }
+
+  downloadBackupBlob(blob, fileName, isSelection ? "選択範囲のバックアップを保存しました" : "バックアップを保存しました");
+  return "downloaded";
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function requireInteger(value, min, max, label) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(label + "が不正です。");
+  }
+  return value;
+}
+
+function normalizeBackupMarker(raw, index) {
+  const label = (index + 1) + "件目のアイコン";
+  if (!isPlainObject(raw)) throw new Error(label + "の形式が不正です。");
+
+  const id = typeof raw.id === "string" || typeof raw.id === "number" ? String(raw.id) : "";
+  if (!id) throw new Error(label + "のIDがありません。");
+
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new Error(label + "の位置情報が不正です。");
+  }
+
+  if (raw.type !== "house" && raw.type !== "building") {
+    throw new Error(label + "の種類が不正です。");
+  }
+
+  const statusIndex = requireInteger(raw.statusIndex, 0, STATUS_COUNT - 1, label + "の状態");
+  if (raw.type === "house") {
+    return { id, lat, lng, statusIndex, type: "house", rooms: null, isOnlineArea: false };
+  }
+
+  if (!isPlainObject(raw.rooms)) throw new Error(label + "の部屋情報がありません。");
+  const maxFloor = requireInteger(raw.rooms.maxFloor, 1, 1000, label + "の階数");
+  const maxRoomNum = requireInteger(raw.rooms.maxRoomNum, 1, 1000, label + "の部屋数");
+  const rawStates = raw.rooms.states === undefined ? {} : raw.rooms.states;
+  if (!isPlainObject(rawStates)) throw new Error(label + "の部屋状態が不正です。");
+
+  const states = {};
+  Object.entries(rawStates).forEach(([roomNo, state]) => {
+    if (!/^\d+$/.test(roomNo)) throw new Error(label + "の部屋番号が不正です。");
+    states[roomNo] = requireInteger(state, 0, STATUS_COUNT - 1, label + "の部屋状態");
+  });
+
+  const rawHiddenRooms = raw.rooms.hiddenRooms === undefined ? [] : raw.rooms.hiddenRooms;
+  if (!Array.isArray(rawHiddenRooms)) throw new Error(label + "の削除済み部屋情報が不正です。");
+  const hiddenRooms = [...new Set(rawHiddenRooms.map((roomNo) => {
+    const normalized = String(roomNo);
+    if (!/^\d+$/.test(normalized)) throw new Error(label + "の削除済み部屋番号が不正です。");
+    return normalized;
+  }))];
+
+  if (raw.isOnlineArea !== undefined && typeof raw.isOnlineArea !== "boolean") {
+    throw new Error(label + "のオンライン区域設定が不正です。");
+  }
+
+  return {
+    id,
+    lat,
+    lng,
+    statusIndex,
+    type: "building",
+    rooms: { maxFloor, maxRoomNum, states, hiddenRooms },
+    isOnlineArea: raw.isOnlineArea === true,
+  };
+}
+
+function parseBackupPayload(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new Error("JSONファイルを読み取れませんでした。");
+  }
+
+  if (!isPlainObject(raw) || raw.format !== BACKUP_FORMAT || raw.version !== BACKUP_VERSION) {
+    throw new Error("このアプリのバックアップファイルではありません。");
+  }
+  if (!Array.isArray(raw.markers)) throw new Error("アイコンデータがありません。");
+  if (typeof raw.isLocked !== "boolean") throw new Error("編集ロック情報が不正です。");
+  const scope = raw.scope === undefined ? "all" : raw.scope;
+  if (scope !== "all" && scope !== "selection") throw new Error("バックアップの範囲情報が不正です。");
+
+  const markers = raw.markers.map(normalizeBackupMarker);
+  const ids = new Set();
+  markers.forEach((marker) => {
+    if (ids.has(marker.id)) throw new Error("同じIDのアイコンが重複しています。");
+    ids.add(marker.id);
+  });
+
+  return { markers, isLocked: raw.isLocked, scope };
+}
+
+function restoreStorageValue(key, value) {
+  if (value === null) localStorage.removeItem(key);
+  else localStorage.setItem(key, value);
+}
+
+function cloneMarkerData(marker) {
+  return JSON.parse(JSON.stringify(marker));
+}
+
+function mergeBackupMarkers(currentMarkers, importedMarkers) {
+  const merged = currentMarkers.map(cloneMarkerData);
+  const usedIds = new Set(merged.map((marker) => String(marker.id)));
+  const importedAt = Date.now();
+
+  importedMarkers.forEach((marker, index) => {
+    const copy = cloneMarkerData(marker);
+    let candidate = String(copy.id);
+    if (usedIds.has(candidate)) {
+      const base = candidate + "_import_" + importedAt;
+      candidate = base + "_" + (index + 1);
+      let suffix = 2;
+      while (usedIds.has(candidate)) {
+        candidate = base + "_" + (index + 1) + "_" + suffix;
+        suffix += 1;
+      }
+    }
+    copy.id = candidate;
+    usedIds.add(candidate);
+    merged.push(copy);
+  });
+
+  return merged;
+}
+
+function applyImportedBackup(backup, mode) {
+  if (mode !== "replace" && mode !== "add") {
+    throw new Error("読み込み方法が不正です。");
+  }
+
+  const storedMarkers = loadData();
+  const currentMarkers = Array.isArray(storedMarkers) ? storedMarkers : [];
+  const nextMarkers = mode === "add"
+    ? mergeBackupMarkers(currentMarkers, backup.markers)
+    : backup.markers.map(cloneMarkerData);
+  const nextLock = mode === "add" ? loadLock() : backup.isLocked;
+
+  const previousMarkers = localStorage.getItem(STORAGE_KEY);
+  const previousLock = localStorage.getItem(LOCK_KEY);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMarkers));
+    localStorage.setItem(LOCK_KEY, JSON.stringify(nextLock));
+  } catch (e) {
+    try {
+      restoreStorageValue(STORAGE_KEY, previousMarkers);
+      restoreStorageValue(LOCK_KEY, previousLock);
+    } catch (restoreError) {
+      console.error("バックアップ復元後のロールバックに失敗しました。", restoreError);
+    }
+    throw new Error("端末にデータを保存できませんでした。");
+  }
+
+  if (selectionMode && map) exitSelectionMode();
+  closeSelectionActionDialog();
+  closeRoomModal();
+  hideContextMenu();
+
+  Object.values(markerObjects).forEach((obj) => { obj.gmarker.map = null; });
+  markerObjects = {};
+  markersData = nextMarkers;
+  isLocked = nextLock;
+
+  if (map && AdvancedMarkerElement) markersData.forEach(createMarkerObject);
+  updateLockButton();
+  return { importedCount: backup.markers.length, totalCount: nextMarkers.length, mode };
+}
+
+function openBackupActionDialog(backup) {
+  pendingBackupImport = backup;
+  const backupLabel = backup.scope === "selection" ? "範囲バックアップ" : "バックアップ";
+  document.getElementById("backup-action-summary").textContent =
+    backupLabel + "内のアイコン：" + backup.markers.length + " 件\n"
+    + "置き換え、または現在のデータへの追加を選んでください。";
+  document.getElementById("backup-action-overlay").style.display = "flex";
+}
+
+function closeBackupActionDialog() {
+  document.getElementById("backup-action-overlay").style.display = "none";
+  pendingBackupImport = null;
+}
+
+function completePendingBackupImport(mode) {
+  if (!pendingBackupImport) return null;
+  const result = applyImportedBackup(pendingBackupImport, mode);
+  closeBackupActionDialog();
+  if (mode === "add") {
+    showToast(result.importedCount + " 件を追加しました（合計 " + result.totalCount + " 件）");
+  } else {
+    showToast(result.importedCount + " 件のバックアップに置き換えました");
+  }
+  return result;
+}
+
+function readBackupFile(file) {
+  if (typeof file.text === "function") return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("ファイルを読み取れませんでした。"));
+    reader.readAsText(file);
+  });
+}
+
+async function importBackupFile(file) {
+  if (!file) return;
+  if (file.size > BACKUP_MAX_BYTES) {
+    throw new Error("バックアップファイルが大きすぎます（上限5MB）。");
+  }
+
+  const backup = parseBackupPayload(await readBackupFile(file));
+  openBackupActionDialog(backup);
 }
 
 function renderLegend() {
@@ -1119,6 +1466,45 @@ function setupUI() {
     if (selectionMode) exitSelectionMode(); else enterSelectionMode();
   });
 
+  document.getElementById("btn-backup-export").addEventListener("click", () => {
+    exportBackup().catch((e) => {
+      console.error("バックアップ書き出し失敗:", e);
+      alert("バックアップを書き出せませんでした。");
+    });
+  });
+
+  const backupFileInput = document.getElementById("backup-file-input");
+  document.getElementById("btn-backup-import").addEventListener("click", () => {
+    backupFileInput.value = "";
+    backupFileInput.click();
+  });
+  backupFileInput.addEventListener("change", async () => {
+    const file = backupFileInput.files && backupFileInput.files[0];
+    try {
+      await importBackupFile(file);
+    } catch (e) {
+      console.error("バックアップ読み込み失敗:", e);
+      alert("バックアップを読み込めませんでした。\n" + (e && e.message ? e.message : "ファイルを確認してください。"));
+    } finally {
+      backupFileInput.value = "";
+    }
+  });
+
+  const runBackupImport = (mode) => {
+    try {
+      completePendingBackupImport(mode);
+    } catch (e) {
+      console.error("バックアップ反映失敗:", e);
+      alert("バックアップを反映できませんでした。\n" + (e && e.message ? e.message : "端末の保存容量を確認してください。"));
+    }
+  };
+  document.getElementById("backup-replace").addEventListener("click", () => runBackupImport("replace"));
+  document.getElementById("backup-add").addEventListener("click", () => runBackupImport("add"));
+  document.getElementById("backup-cancel").addEventListener("click", closeBackupActionDialog);
+  document.getElementById("backup-action-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "backup-action-overlay") closeBackupActionDialog();
+  });
+
   const layer = document.getElementById("selection-layer");
   layer.addEventListener("pointerdown", (e) => {
     selStart = { x: e.clientX, y: e.clientY };
@@ -1148,6 +1534,22 @@ function setupUI() {
     closeSelectionActionDialog();
     exitSelectionMode();
   });
+  document.getElementById("sa-export").addEventListener("click", async () => {
+    const targets = pendingSelection ? [...pendingSelection] : [];
+    if (targets.length === 0) {
+      showToast("書き出すアイコンがありません");
+      return;
+    }
+    try {
+      const result = await exportBackup(targets, "selection");
+      if (result === "cancelled") return;
+      closeSelectionActionDialog();
+      exitSelectionMode();
+    } catch (e) {
+      console.error("選択範囲のバックアップ書き出し失敗:", e);
+      alert("選択範囲のバックアップを書き出せませんでした。");
+    }
+  });
   document.getElementById("sa-delete").addEventListener("click", () => {
     if (pendingSelection) {
       pendingSelection.map(m => m.id).forEach(removeMarker);
@@ -1165,7 +1567,7 @@ function setupUI() {
     if (e.target.id === "room-modal-overlay") closeRoomModal();
   });
 
-  document.querySelectorAll(".tool-btn").forEach(btn => {
+  document.querySelectorAll("#room-modal .tool-btn[data-action]").forEach(btn => {
     btn.addEventListener("click", () => roomToolAction(btn.dataset.action));
   });
 }
