@@ -403,6 +403,7 @@
       <button class="ctrl-btn backup-btn" id="btn-backup-export" type="button" title="バックアップを書き出す" aria-label="バックアップを書き出す">⇧<span class="backup-label">書出</span></button>
       <button class="ctrl-btn backup-btn" id="btn-backup-import" type="button" title="バックアップを読み込む" aria-label="バックアップを読み込む">⇩<span class="backup-label">読込</span></button>
     </div>
+    <button class="ctrl-btn" id="btn-share-import-url" type="button" title="AirDrop用の一時取り込みURLを送る" style="width:108px;font-size:13px;">🔗 AirDrop</button>
     <input type="file" id="backup-file-input" accept="application/json,.json" hidden />
   </div>
 
@@ -424,7 +425,8 @@
     <div id="select-action-box">
       <div class="sa-title" id="sa-title">選択範囲</div>
       <button class="tool-btn" id="sa-reset">未訪問に戻す</button>
-      <button class="tool-btn primary" id="sa-export">選択範囲を書き出す</button>
+      <button class="tool-btn" id="sa-export">選択範囲をファイル保存</button>
+      <button class="tool-btn primary" id="sa-share-url">選択範囲をAirDrop送信</button>
       <button class="tool-btn danger" id="sa-delete">削除する</button>
       <button class="tool-btn" id="sa-cancel">キャンセル</button>
     </div>
@@ -477,6 +479,11 @@ const LOCK_KEY = "ipad_map_locked_v1";
 const BACKUP_FORMAT = "ipad_visit_map_backup";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
+const IMPORT_BASE_URL = "https://nminamigit.github.io/AreaMap/";
+const IMPORT_TRANSFER_FORMAT = "ipad_visit_map_transfer";
+const IMPORT_TRANSFER_VERSION = 1;
+const IMPORT_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const IMPORT_LINK_MAX_LENGTH = 60000;
 const LONG_PRESS_MS = 600;
 const MOVE_THRESHOLD = 10;
 const MAP_CLICK_GUARD_MS = 500;
@@ -500,6 +507,7 @@ let overlayProjection = null;
 let selStart = null;
 let pendingSelection = null;
 let pendingBackupImport = null;
+let importLinkProcessing = false;
 
 function houseSVG(color) {
   const stroke = "#1a1a1a";
@@ -680,6 +688,173 @@ async function exportBackup(markerSubset = null, scope = "all") {
 
   downloadBackupBlob(blob, fileName, isSelection ? "選択範囲のバックアップを保存しました" : "バックアップを保存しました");
   return "downloaded";
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("取り込みURLの形式が不正です。");
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
+  let binary;
+  try {
+    binary = atob(padded);
+  } catch (e) {
+    throw new Error("取り込みURLの形式が不正です。");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function compressImportBytes(bytes) {
+  if (typeof CompressionStream !== "function") return { codec: "raw", bytes };
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+    return { codec: "gzip", bytes: new Uint8Array(await new Response(stream).arrayBuffer()) };
+  } catch (e) {
+    console.warn("URL用データを圧縮できなかったため、非圧縮で続行します。", e);
+    return { codec: "raw", bytes };
+  }
+}
+
+async function decompressImportBytes(bytes, codec) {
+  if (codec === "raw") return bytes;
+  if (codec !== "gzip" || typeof DecompressionStream !== "function") {
+    throw new Error("この端末では取り込みURLを展開できません。JSONファイルで読み込んでください。");
+  }
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) {
+    throw new Error("取り込みURLのデータが破損しています。");
+  }
+}
+
+async function createImportUrl(markerSubset = null, scope = "all", expiresAt = Date.now() + IMPORT_LINK_TTL_MS) {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("この端末では一時取り込みURLを作成できません。JSONファイルで書き出してください。");
+  }
+
+  const transfer = {
+    format: IMPORT_TRANSFER_FORMAT,
+    version: IMPORT_TRANSFER_VERSION,
+    expiresAt,
+    backup: buildBackupPayload(markerSubset, scope),
+  };
+  const plainBytes = new TextEncoder().encode(JSON.stringify(transfer));
+  const compressed = await compressImportBytes(plainBytes);
+  const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt"]);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, compressed.bytes));
+  const token = [
+    "v1",
+    compressed.codec,
+    bytesToBase64Url(iv),
+    bytesToBase64Url(keyBytes),
+    bytesToBase64Url(encrypted),
+  ].join(".");
+  const url = IMPORT_BASE_URL + "#import=" + token;
+  if (url.length > IMPORT_LINK_MAX_LENGTH) {
+    throw new Error("データ量が多いためURL送信できません。JSONファイルの書き出しを使用してください。");
+  }
+  return url;
+}
+
+async function decodeImportToken(token, now = Date.now()) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 5 || parts[0] !== "v1") throw new Error("取り込みURLの形式が不正です。");
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("この端末では取り込みURLを読み取れません。JSONファイルで読み込んでください。");
+  }
+
+  const codec = parts[1];
+  const iv = base64UrlToBytes(parts[2]);
+  const keyBytes = base64UrlToBytes(parts[3]);
+  const encrypted = base64UrlToBytes(parts[4]);
+  if (iv.length !== 12 || keyBytes.length !== 32) throw new Error("取り込みURLの形式が不正です。");
+
+  let decrypted;
+  try {
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+    decrypted = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted));
+  } catch (e) {
+    throw new Error("取り込みURLのデータが破損しています。");
+  }
+
+  const plainBytes = await decompressImportBytes(decrypted, codec);
+  let transfer;
+  try {
+    transfer = JSON.parse(new TextDecoder().decode(plainBytes));
+  } catch (e) {
+    throw new Error("取り込みURLのデータを読み取れませんでした。");
+  }
+  if (!isPlainObject(transfer)
+      || transfer.format !== IMPORT_TRANSFER_FORMAT
+      || transfer.version !== IMPORT_TRANSFER_VERSION
+      || !Number.isFinite(transfer.expiresAt)
+      || !isPlainObject(transfer.backup)) {
+    throw new Error("取り込みURLのデータ形式が不正です。");
+  }
+  if (now > transfer.expiresAt) throw new Error("この取り込みURLは有効期限（24時間）を過ぎています。");
+  return parseBackupPayload(JSON.stringify(transfer.backup));
+}
+
+async function shareImportUrl(markerSubset = null, scope = "all") {
+  const isSelection = scope === "selection";
+  const url = await createImportUrl(markerSubset, scope);
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: isSelection ? "訪問管理マップ 選択範囲の取り込み" : "訪問管理マップ データ取り込み",
+        text: "このURLは24時間有効です。タップすると訪問管理マップに取り込めます。",
+        url,
+      });
+      return "shared";
+    } catch (e) {
+      if (e && e.name === "AbortError") return "cancelled";
+      console.warn("共有画面を開けなかったため、URLのコピーに切り替えます。", e);
+    }
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(url);
+    showToast("取り込みURLをコピーしました");
+    return "copied";
+  }
+  prompt("次の取り込みURLをコピーして送信してください（24時間有効）", url);
+  return "shown";
+}
+
+function clearImportHash() {
+  if (typeof history !== "undefined" && history.replaceState && typeof location !== "undefined") {
+    history.replaceState(null, document.title, location.pathname + location.search);
+  }
+}
+
+async function processImportUrl() {
+  if (importLinkProcessing || typeof location === "undefined" || !location.hash.startsWith("#import=")) return;
+  importLinkProcessing = true;
+  const token = location.hash.slice("#import=".length);
+  try {
+    const backup = await decodeImportToken(token);
+    clearImportHash();
+    openBackupActionDialog(backup);
+  } catch (e) {
+    clearImportHash();
+    console.error("一時取り込みURLの読込失敗:", e);
+    alert("取り込みURLを読み込めませんでした。\n" + (e && e.message ? e.message : "URLを確認してください。"));
+  } finally {
+    importLinkProcessing = false;
+  }
 }
 
 function isPlainObject(value) {
@@ -1472,6 +1647,12 @@ function setupUI() {
       alert("バックアップを書き出せませんでした。");
     });
   });
+  document.getElementById("btn-share-import-url").addEventListener("click", () => {
+    shareImportUrl().catch((e) => {
+      console.error("一時取り込みURLの作成失敗:", e);
+      alert("一時取り込みURLを作成できませんでした。\n" + (e && e.message ? e.message : "JSONファイルで書き出してください。"));
+    });
+  });
 
   const backupFileInput = document.getElementById("backup-file-input");
   document.getElementById("btn-backup-import").addEventListener("click", () => {
@@ -1550,6 +1731,22 @@ function setupUI() {
       alert("選択範囲のバックアップを書き出せませんでした。");
     }
   });
+  document.getElementById("sa-share-url").addEventListener("click", async () => {
+    const targets = pendingSelection ? [...pendingSelection] : [];
+    if (targets.length === 0) {
+      showToast("送信するアイコンがありません");
+      return;
+    }
+    try {
+      const result = await shareImportUrl(targets, "selection");
+      if (result === "cancelled") return;
+      closeSelectionActionDialog();
+      exitSelectionMode();
+    } catch (e) {
+      console.error("選択範囲の一時取り込みURL作成失敗:", e);
+      alert("選択範囲の取り込みURLを作成できませんでした。\n" + (e && e.message ? e.message : "JSONファイルで書き出してください。"));
+    }
+  });
   document.getElementById("sa-delete").addEventListener("click", () => {
     if (pendingSelection) {
       pendingSelection.map(m => m.id).forEach(removeMarker);
@@ -1570,6 +1767,9 @@ function setupUI() {
   document.querySelectorAll("#room-modal .tool-btn[data-action]").forEach(btn => {
     btn.addEventListener("click", () => roomToolAction(btn.dataset.action));
   });
+
+  processImportUrl();
+  window.addEventListener("hashchange", processImportUrl);
 }
 document.addEventListener("DOMContentLoaded", setupUI);
 </script>
