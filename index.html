@@ -46,6 +46,41 @@
     box-shadow: var(--shadow);
   }
 
+  #control-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  #control-panel.collapsed #control-panel-body,
+  #legend.collapsed #legend-list {
+    display: none;
+  }
+
+  .panel-toggle {
+    min-height: 44px;
+    border: 0;
+    border-radius: 9px;
+    background: rgba(243, 244, 246, 0.95);
+    color: #374151;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .panel-toggle:active { background: #e5e7eb; }
+  .panel-chevron { font-size: 13px; }
+
   .mode-group {
     display: flex;
     gap: 8px;
@@ -209,17 +244,38 @@
     right: 12px;
     z-index: 20;
     background: var(--panel-bg);
-    padding: 10px 12px;
+    padding: 8px;
     border-radius: 12px;
     box-shadow: var(--shadow);
     font-size: 13px;
+    min-width: 184px;
   }
 
-  #legend .legend-title {
-    font-weight: bold;
-    margin-bottom: 6px;
-    font-size: 12px;
-    color: #374151;
+  #legend-toggle { width: 100%; }
+
+  #legend-list {
+    margin-top: 6px;
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 4px 2px;
+  }
+
+  #control-panel.collapsed,
+  #legend.collapsed {
+    padding: 6px;
+  }
+  #legend.collapsed { min-width: 0; }
+
+  @media (max-width: 600px) {
+    #control-panel {
+      top: max(8px, env(safe-area-inset-top));
+      right: max(8px, env(safe-area-inset-right));
+    }
+    #legend {
+      right: max(8px, env(safe-area-inset-right));
+      bottom: max(8px, env(safe-area-inset-bottom));
+    }
   }
 
   .legend-row {
@@ -390,25 +446,32 @@
   <div id="map"></div>
 
   <div id="control-panel">
-    <div class="mode-group">
-      <input type="radio" name="mode" id="mode-house" value="house" checked />
-      <label class="ctrl-btn active" id="btn-house" for="mode-house" title="家モード">🏠</label>
-      <input type="radio" name="mode" id="mode-building" value="building" />
-      <label class="ctrl-btn" id="btn-building" for="mode-building" title="ビルモード">🏢</label>
+    <button class="panel-toggle" id="control-panel-toggle" type="button" aria-expanded="true" aria-controls="control-panel-body" title="操作メニューをたたむ">
+      <span>☰ 操作メニュー</span><span class="panel-chevron" id="control-panel-chevron">▲</span>
+    </button>
+    <div id="control-panel-body">
+      <div class="mode-group">
+        <input type="radio" name="mode" id="mode-house" value="house" checked />
+        <label class="ctrl-btn active" id="btn-house" for="mode-house" title="家モード">🏠</label>
+        <input type="radio" name="mode" id="mode-building" value="building" />
+        <label class="ctrl-btn" id="btn-building" for="mode-building" title="ビルモード">🏢</label>
+      </div>
+      <button class="ctrl-btn" id="btn-search" title="住所検索" style="width:108px;">🔍</button>
+      <button class="ctrl-btn" id="btn-lock" title="編集ロック（タップでロック）" style="width:108px;">🔓</button>
+      <button class="ctrl-btn" id="btn-select" title="範囲選択して一括操作" style="width:108px;font-size:14px;">▭ 範囲選択</button>
+      <div class="backup-group">
+        <button class="ctrl-btn backup-btn" id="btn-backup-export" type="button" title="バックアップを書き出す" aria-label="バックアップを書き出す">⇧<span class="backup-label">書出</span></button>
+        <button class="ctrl-btn backup-btn" id="btn-backup-import" type="button" title="バックアップを読み込む" aria-label="バックアップを読み込む">⇩<span class="backup-label">読込</span></button>
+      </div>
+      <button class="ctrl-btn" id="btn-share-import-url" type="button" title="AirDrop用の一時取り込みURLを送る" style="width:108px;font-size:13px;">🔗 AirDrop</button>
+      <input type="file" id="backup-file-input" accept="application/json,.json" hidden />
     </div>
-    <button class="ctrl-btn" id="btn-search" title="住所検索" style="width:108px;">🔍</button>
-    <button class="ctrl-btn" id="btn-lock" title="編集ロック（タップでロック）" style="width:108px;">🔓</button>
-    <button class="ctrl-btn" id="btn-select" title="範囲選択して一括操作" style="width:108px;font-size:14px;">▭ 範囲選択</button>
-    <div class="backup-group">
-      <button class="ctrl-btn backup-btn" id="btn-backup-export" type="button" title="バックアップを書き出す" aria-label="バックアップを書き出す">⇧<span class="backup-label">書出</span></button>
-      <button class="ctrl-btn backup-btn" id="btn-backup-import" type="button" title="バックアップを読み込む" aria-label="バックアップを読み込む">⇩<span class="backup-label">読込</span></button>
-    </div>
-    <button class="ctrl-btn" id="btn-share-import-url" type="button" title="AirDrop用の一時取り込みURLを送る" style="width:108px;font-size:13px;">🔗 AirDrop</button>
-    <input type="file" id="backup-file-input" accept="application/json,.json" hidden />
   </div>
 
   <div id="legend">
-    <div class="legend-title">ステータス凡例</div>
+    <button class="panel-toggle" id="legend-toggle" type="button" aria-expanded="true" aria-controls="legend-list" title="ステータス凡例をたたむ">
+      <span>ステータス凡例</span><span class="panel-chevron" id="legend-chevron">▲</span>
+    </button>
     <div id="legend-list"></div>
   </div>
 
@@ -476,6 +539,7 @@ const ONLINE_AREA_COLOR = "#38bdf8";
 
 const STORAGE_KEY = "ipad_map_markers_v5";
 const LOCK_KEY = "ipad_map_locked_v1";
+const PANEL_STATE_KEY = "ipad_map_panel_state_v1";
 const BACKUP_FORMAT = "ipad_visit_map_backup";
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
@@ -585,6 +649,59 @@ function loadLock() {
   } catch (e) {
     return false;
   }
+}
+
+function loadPanelState() {
+  try {
+    const value = JSON.parse(localStorage.getItem(PANEL_STATE_KEY));
+    return isPlainObject(value) ? value : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function savePanelState(state) {
+  try {
+    localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error("パネル状態の保存失敗:", e);
+  }
+}
+
+function setPanelCollapsed(kind, collapsed, state, persist = true) {
+  const isControl = kind === "control";
+  const panel = document.getElementById(isControl ? "control-panel" : "legend");
+  const toggle = document.getElementById(isControl ? "control-panel-toggle" : "legend-toggle");
+  const chevron = document.getElementById(isControl ? "control-panel-chevron" : "legend-chevron");
+  const stateKey = isControl ? "controlCollapsed" : "legendCollapsed";
+  const label = isControl ? "操作メニュー" : "ステータス凡例";
+
+  panel.classList.toggle("collapsed", collapsed);
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  toggle.title = label + (collapsed ? "を開く" : "をたたむ");
+  chevron.textContent = collapsed ? "▼" : "▲";
+  state[stateKey] = collapsed;
+  if (persist) savePanelState(state);
+}
+
+function setupCollapsiblePanels() {
+  const saved = loadPanelState();
+  const compactScreen = typeof window.matchMedia === "function"
+    ? window.matchMedia("(max-width: 600px)").matches
+    : false;
+  const state = {
+    controlCollapsed: typeof saved.controlCollapsed === "boolean" ? saved.controlCollapsed : compactScreen,
+    legendCollapsed: typeof saved.legendCollapsed === "boolean" ? saved.legendCollapsed : compactScreen,
+  };
+
+  setPanelCollapsed("control", state.controlCollapsed, state, false);
+  setPanelCollapsed("legend", state.legendCollapsed, state, false);
+  document.getElementById("control-panel-toggle").addEventListener("click", () => {
+    setPanelCollapsed("control", !state.controlCollapsed, state);
+  });
+  document.getElementById("legend-toggle").addEventListener("click", () => {
+    setPanelCollapsed("legend", !state.legendCollapsed, state);
+  });
 }
 
 function updateLockButton() {
@@ -1610,6 +1727,7 @@ function roomToolAction(action) {
 }
 
 function setupUI() {
+  setupCollapsiblePanels();
   const btnHouse = document.getElementById("btn-house");
   const btnBuilding = document.getElementById("btn-building");
   function setMode(mode) {
